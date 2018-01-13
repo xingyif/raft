@@ -1,0 +1,63 @@
+#!/usr/bin/python
+
+import socket
+
+print("Program started")
+
+HOST = 'cs5700f16.ccs.neu.edu'
+PORT = 27998
+PATTERN = 'STATUS '
+# create a socket
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+# ip = socket.gethostbyname("cs5700f16.ccs.neu.edu")
+
+# connect to server
+s.connect((HOST, PORT))
+# send data to server
+hello_message = 'cs3700spring2018 HELLO 001778409\n'
+s.sendall(hello_message)
+
+# server should reply: cs3700spring2018 STATUS [a number] [a math operator] [another number]\n
+status_reply = s.recv(1024)
+
+print status_reply
+
+while PATTERN in status_reply:
+    # extract math expression from reply
+    math_exp = status_reply.split(PATTERN)[1]
+
+    print math_exp
+
+    first_num = int(math_exp.split(' ')[0])
+    opt = math_exp.split(' ')[1]
+    last_num = int(math_exp.split(' ')[2])
+
+    if opt == '+':
+        result = first_num + last_num
+    elif opt == '-':
+        result = first_num - last_num
+    elif opt == '*':
+        result = first_num * last_num
+    elif opt == '/':
+        result = first_num / last_num
+    print result
+
+    # return solution to the server
+    # cs3700spring2018 [the solution]\n
+    solution = 'cs3700spring2018 ' + str(result) + '\n'
+    s.sendall(solution)
+    status_reply = s.recv(1024)
+    print 'in while' + status_reply
+
+# cs3700spring2018 [a 64 byte secret flag] BYE\n
+if 'BYE' in status_reply:
+    if 'Unknown_Husky_ID' in status_reply:
+        print 'ERROR: Server did not recognize the NEU ID that you supplied in the HELLO message!'
+    print status_reply
+    secret_flag = status_reply.split(' ')[1]
+    print secret_flag
+
+
+
+
+
