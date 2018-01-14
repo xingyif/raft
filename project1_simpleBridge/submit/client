@@ -56,6 +56,7 @@ if 'BYE' in status_reply:
     print status_reply
     secret_flag = status_reply.split(' ')[1]
     print secret_flag
+    s.close()
 
 
 

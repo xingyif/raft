@@ -36,3 +36,6 @@ I've tested my code mainly using print statements to print the response from the
 By printing out the responses, I am able to varify if the results are expected or error/unexpected.
 I've also designed my code to strictly handle the response so that any unexpected response
 will trigger the program to terminate the connection and print the cause.
+
+
+// TODO: error check, input, extra credit
