@@ -1,16 +1,18 @@
 **High-level approach:
 My high-level approach on this project is to use a socket to communicate with the server.
-I started by defining the constants, including HOST, PORT, and string PATTERN.
+The client is started by accepting a few inputs, including HOST, PORT (optional), -s (optional), and NEUID.
+The client strictly checks the user inputs. Input must follow the pattern: ./client <-p port> <-s> [hostname] [NEU ID]
 Then I created a socket to communicate with the server by sending and receiving messages.
-Each time when I get a message from the server, I interpret the message content:
-  if the content has a math expression, I will calculate it and send the response to the server.
-  if the content has "BYE", I will extract my secret_flag from the message.
+Messages' contents and formats are strictly checked. The program terminates if found any malformed messages.
+Each time a message is returned from the server, the client interprets the message content:
+  if the content has a math expression, the client calculates it and sends the response to the server.
+  if the content has "BYE", the client extracts the secret_flag from the message.
   other senarios/errors/exceptions, i.e, unknown_nuid, are interpreted in the code.
 
 
 
 **Challenges faced:
-The main challenge I've faced is to run the registration script on ccs linux server.
+1. The main challenge I've faced is to run the registration script on ccs linux server.
 I was trying to run the registration script on ccs server. Since login.ccs.neu.edu has an existing permission error.
 When I ran `ssh xingyif@kungfu.ccs.neu.edu`
 I received:
@@ -21,14 +23,17 @@ However, I can successfully ssh in login.ccs.neu.edu with the same password.
 I've also tried to ssh into kungfu from login(to rule out firewall issues).
 And I got, Authentication Failed, using the same password.
 
-Another challenge I had was adapting to python syntax.
+I was finally able to register myID and myProjectGroup by ssh `top`
+
+2. Another challenge I had was adapting to python syntax.
 I've used Python in my first coop, which was 1 year and a half ago.
 I feel more comfortable using Scala, which is the language I used for my last coop a month ago.
 In order to adapte Python, I started by re-learning the language, including its syntax and libraries
 
-The third challenge I've faced was to learn about socket programming.
+3. The third challenge I've faced was to learn about socket programming.
 I had no experience programming using socket. However, reading about sockets, servers, and clients
 interactions is really fun.
+
 
 
 **How I tested my code:
@@ -36,6 +41,8 @@ I've tested my code mainly using print statements to print the response from the
 By printing out the responses, I am able to varify if the results are expected or error/unexpected.
 I've also designed my code to strictly handle the response so that any unexpected response
 will trigger the program to terminate the connection and print the cause.
+I've tested the program by inputting edge cases that could case exceptions,
+for example, a wrong number of arguments, invalid arguments.
 
 
 // TODO: error check, input, extra credit
