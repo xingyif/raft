@@ -2,8 +2,10 @@
 
 import socket
 import sys
+import ssl
 
 PORT = 27998
+SSL_PORT = 27999
 # HOST = 'cs5700f16.ccs.neu.edu'
 # NUID = '001778409'
 PATTERN = 'STATUS '
@@ -16,23 +18,8 @@ if len(sys.argv) < 3 or len(sys.argv) > 6:
     print 'Illegal input arguments! Input must follow the pattern: ./client <-p port> <-s> [hostname] [NEU ID]'
     exit(1)
 
-# read in inputs
-if sys.argv[1] == '-p':
-    port = int(sys.argv[2])
-else:
-    port = PORT
-
-host = sys.argv[len(sys.argv) - 2]
-nuid = sys.argv[len(sys.argv) - 1]
-
-
 # initial socket
 s = None
-
-# if '-s' in sys.argv:
-#     # use an SSL encrypted socket connection
-
-
 
 # create a socket
 try:
@@ -41,11 +28,37 @@ except socket.error as e:
     print 'Failed to create socket!'
     exit(1)
 
+# read in inputs
+if sys.argv[1] == '-p':
+    if len(sys.argv) < 5 or len(sys.argv) > 6:
+        s.close()
+        print 'Illegal input arguments! Input must follow the pattern: ./client <-p port> <-s> [hostname] [NEU ID]'
+        exit(1)
+    port = int(sys.argv[2])
+# use an SSL encrypted socket connection
+elif '-p' not in sys.argv and '-s' in sys.argv:
+    if len(sys.argv) != 4:
+        s.close()
+        print 'Illegal input arguments! Input must follow the pattern: ./client <-p port> <-s> [hostname] [NEU ID]'
+        exit(1)
+    s = ssl.wrap_socket(socket.socket(socket.AF_INET, socket.SOCK_STREAM), ssl_version=ssl.PROTOCOL_SSLv23)
+    port = SSL_PORT
+else:
+    if len(sys.argv) != 3:
+        s.close()
+        print 'Illegal input arguments! Input must follow the pattern: ./client <-p port> <-s> [hostname] [NEU ID]'
+        exit(1)
+    port = PORT
+
+host = sys.argv[len(sys.argv) - 2]
+nuid = sys.argv[len(sys.argv) - 1]
+
 # connect to server
 try:
     s.connect((host, port))
 except socket.error as e:
     print 'Failed to connect to the server!'
+    print e
     s.close()
     exit(1)
 
