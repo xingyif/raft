@@ -10,9 +10,6 @@ SSL_PORT = 27999
 # NUID = '001778409'
 PATTERN = 'STATUS '
 
-if __name__=="__main__":
-    print "command arguments:", sys.argv
-
 # check input arguments
 if len(sys.argv) < 3 or len(sys.argv) > 6:
     print 'Illegal input arguments! Input must follow the pattern: ./client <-p port> <-s> [hostname] [NEU ID]'
@@ -30,10 +27,17 @@ except socket.error as e:
 
 # read in inputs
 if sys.argv[1] == '-p':
-    if len(sys.argv) < 5 or len(sys.argv) > 6:
-        s.close()
-        print 'Illegal input arguments! Input must follow the pattern: ./client <-p port> <-s> [hostname] [NEU ID]'
-        exit(1)
+    if '-s' in sys.argv:
+        if len(sys.argv) != 6:
+            s.close()
+            print 'Illegal input arguments! Input must follow the pattern: ./client <-p port> <-s> [hostname] [NEU ID]'
+            exit(1)
+        s = ssl.wrap_socket(socket.socket(socket.AF_INET, socket.SOCK_STREAM), ssl_version=ssl.PROTOCOL_SSLv23)
+    else:
+        if len(sys.argv) != 5:
+            s.close()
+            print 'Illegal input arguments! Input must follow the pattern: ./client <-p port> <-s> [hostname] [NEU ID]'
+            exit(1)
     port = int(sys.argv[2])
 # use an SSL encrypted socket connection
 elif '-p' not in sys.argv and '-s' in sys.argv:
