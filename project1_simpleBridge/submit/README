@@ -44,5 +44,3 @@ will trigger the program to terminate the connection and print the cause.
 I've tested the program by inputting edge cases that could case exceptions,
 for example, a wrong number of arguments, invalid arguments.
 
-
-// TODO: error check, input, extra credit
