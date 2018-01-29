@@ -1,0 +1,83 @@
+#!/usr/bin/python -u    
+# The -u makes output unbuffered, so it will show up immediately
+import sys
+import socket
+import select
+import json
+ 
+forwarding_table = {}
+
+# pads the name with null bytes at the end
+def pad(name):
+        result = '\0' + name
+        while len(result) < 108:
+                result += '\0'
+        print(result)
+        return result
+    
+def rebroadcast(data_as_string, port):
+    data = json.loads(data_as_string)
+    
+    dest = data['dest'];
+    source = data['source']
+    forwarding_table[source] = port
+    print("adding: " + str(source) + ", " + str(port) + " to forwarding table")
+    if dest not in forwarding_table:
+        print('forwarding data through all ports')
+        print(data_as_string)
+        for sending_port in range(len(sockets)):
+            if port != sending_port:
+                sockets[sending_port].send(data_as_string)
+    else:
+        print('forwarding data through entry in table')
+        print(data_as_string)
+        dest_port = forwarding_table[dest]
+        if dest_port != port:
+            sockets[dest_port].send(data_as_string)
+    
+    
+    
+if __name__ == "__main__":
+        id = sys.argv[1]
+        LAN = sys.argv[2:]
+        sockets = []
+        socket_addrs = []
+        
+        # creates sockets and connects to them
+        for x in range(len(LAN)):
+                s = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+                print LAN[x]
+                s.connect(pad(LAN[x]))
+                socket_addrs.append(LAN[x])
+                sockets.append(s)
+        
+        ## closes duplicate ports
+        remove_list = []
+        
+        for n in range(len(socket_addrs)):
+            temp = socket_addrs[n]
+            socket_addrs[n] = -1
+            if temp in socket_addrs:
+                sockets[n].close()
+                remove_list.append(n)
+            else:
+                socket_addrs[n] = temp
+        
+        for remove_node in reversed(remove_list):
+            del(socket_addrs[remove_node])
+            del(sockets[remove_node])
+        
+        print "Bridge " + id + " starting up in py\n"
+ 
+    
+        # Main loop
+        while True:
+                # Calls select with all the sockets; change the timeout value (1)
+                ready, ignore, ignore2 = select.select(sockets, [], [], 1)
+ 
+                # Reads from each fo the ready sockets
+                for x in ready:
+                        data = x.recv(1500)
+                        port = sockets.index(x)
+                        rebroadcast(data, port)
+

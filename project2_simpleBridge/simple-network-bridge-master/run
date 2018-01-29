@@ -1,0 +1,384 @@
+#!/usr/bin/perl
+use lib '/home/amislove/perl5/lib/perl5';
+use strict;
+use warnings;
+use threads;
+use threads::shared;
+use IO::Handle;
+use IO::Select;
+use IO::Socket;
+use IO::Socket::UNIX;
+use IPC::Open2;
+use IPC::Open3;
+use JSON;
+use Time::HiRes qw(time);
+
+if ($#ARGV != 0) { 
+  die "Usage: ./run config-file";
+}
+
+my $username = $ENV{LOGNAME} || $ENV{USER} || getpwuid($<);
+die "Cannot determine username: $!" unless $username;
+
+die "Cannot find '3700bridge' executable" unless -e "3700bridge";
+die "File '3700bridge' is not executable" unless -x "3700bridge";
+
+my $DATA = "data";
+
+my $WAIT = 2;
+
+my $sel = IO::Select->new();
+
+my %lans = ();
+my %bridges = ();
+my %ids = ();
+my %revids = ();
+my %processes = ();
+
+my %handles = ();
+
+my %hosts = ();
+
+# Read in config fig
+die "Unable to open config file '$ARGV[0]'" unless -e $ARGV[0];
+
+my $config = "";
+open(F, $ARGV[0]);
+while(<F>) {
+  $config .= $_;
+}
+close(F);
+
+my $conf = decode_json($config);
+
+die "Invalid config file: No lifetime" unless $conf->{"lifetime"};
+die "Invalid config file: Invalid lifetime" unless $conf->{"lifetime"} > 0;
+die "Invalid config file: No number of hosts" unless $conf->{"hosts"};
+die "Invalid config file: Invalid number of hosts" unless $conf->{"hosts"} > 0;
+die "Invalid config file: No number of packets" unless $conf->{"packets"};
+die "Invalid config file: Invalid number of data packets" unless $conf->{"packets"} > 0;
+
+# Set up events list
+my $STOP = 0;
+my $BRIDGE_START = 1;
+my $BRIDGE_STOP = 2;
+my $PORT_CONNECT = 4;
+my $PORT_DISCONNECT = 5;
+my $SEND_PACKET = 6;
+
+my @events = ();
+add_event({'type' => $STOP, 'time' => $conf->{"lifetime"}});
+
+$| = 1;
+
+my $start = time;
+
+# Set up RNG
+if ($conf->{"seed"}) {
+  srand($conf->{"seed"});
+}
+
+if ($conf->{"wait"}) {
+  $WAIT = $conf->{"wait"};
+}
+
+my $TOTAL_PACKETS = 0;
+my %messages = ();
+
+# Walk over config arguments, creating LAN and Bridges
+foreach my $bridge (@{ $conf->{"bridges"} }) { 
+  my $id = $bridge->{"id"};
+
+  my $start = ($bridge->{"start"} ? $bridge->{"start"} : 0);
+  my $stop = ($bridge->{"stop"} ? $bridge->{"stop"} : $conf->{"lifetime"}+1);
+
+  add_event({'type' => $BRIDGE_START, 'time' => $start, 'bridge' => $id, 'lans' => $bridge->{"lans"}});
+  add_event({'type' => $BRIDGE_STOP, 'time' => $stop, 'bridge' => $id});
+
+  foreach my $lan (@{ $bridge->{"lans"}}) {
+    if (! exists $revids{$lan}) {
+      my $server = IO::Socket::UNIX->new(
+        Type => SOCK_SEQPACKET,
+        Local => get_path($lan),
+        Listen => SOMAXCONN,
+      );
+
+      die "Can't create socket: $!" unless $server;
+
+      add_handle(\$server, "LAN $lan");
+
+      $lans{$server->fileno} = ();
+      $revids{$lan} = $server;
+#      mylog("Driver", "Created LAN $lan");
+    }
+  }
+}
+
+for (my $i=0; $i<$conf->{"hosts"}; $i++) {
+  add_host(get_random_host_name(), $revids{get_random_lan()}); 
+}
+
+for (my $i=0; $i<$conf->{"packets"}; $i++) {
+  add_event({'type' => $SEND_PACKET, 'time' => rand($conf->{"lifetime"} - $WAIT - 1) + $WAIT, 'source' => get_random_host(), 'dest' => get_random_host(), 'id' => $i});
+}
+
+sub get_random_host_name {
+  return sprintf "%04x\n", rand(0xffff);
+}
+
+sub get_random_host {
+  my @hosts = keys %hosts;
+  return $hosts[rand(@hosts)];
+}
+
+sub get_random_lan {
+  my @lans = keys %revids;
+  return $lans[rand(@lans)]
+}
+
+while (1) {
+  my $nextevent = get_next_event();
+  my $sleep = $nextevent->{"time"} - (time - $start);
+#  mylog("Driver", "Sleeping for up to $sleep");
+
+  my @ready = $sel->can_read($sleep);
+
+  foreach my $fh (@ready) {
+    if (exists $lans{$fh->fileno}) {
+      my $sock = $fh->accept();
+      $sock->autoflush(1); 
+
+      if ($sock) {
+#        mylog(get_id(\$fh), "Accepted new connection");
+
+        add_handle(\$sock, get_id(\$fh));
+        $lans{$fh->fileno}{$sock->fileno} = 1;
+        $bridges{$sock->fileno} = $fh;
+      } else {
+        remove_handle(\$fh);
+        mylog(get_id(\$fh), "LAN Disconnected");
+      }
+    } elsif (exists $bridges{$fh->fileno}) {
+      my $msg = "";
+      $fh->recv($msg, 1500);
+      if ($msg) {
+#        mylog(get_id(\$fh), "Read $msg");
+        recv_message($bridges{$fh->fileno}, $msg, get_id(\$fh));
+        broadcast($bridges{$fh->fileno}->fileno, $msg, $fh->fileno);
+#        foreach my $sock (keys %{ $lans{$bridges{$fh->fileno}->fileno}}) {
+#          my $handle = get_handle($sock);
+#          $$handle->send($msg);
+#        }
+      } else {
+        remove_handle(\$fh);
+        delete $lans{$bridges{$fh->fileno}->fileno}{$fh->fileno};
+        mylog(get_id(\$fh), "Bridge disconnected");
+      }
+    } else {
+      my $msg = <$fh>;
+      if ($msg) {
+        chomp($msg);
+        mylog(get_id(\$fh), "$msg");
+      } else {
+        remove_handle(\$fh);
+        mylog(get_id(\$fh), "Bridge disconnected");
+      }
+    }
+  }
+
+  while (($nextevent = get_next_event())->{"time"} <= (time - $start)) {
+    remove_event();
+
+    if ($nextevent->{"type"} == $STOP) {
+      event_stop($nextevent);
+    } elsif ($nextevent->{"type"} == $BRIDGE_START) {
+      event_start_bridge($nextevent);
+    } elsif ($nextevent->{"type"} == $BRIDGE_STOP) {
+      event_stop_bridge($nextevent);
+    } elsif ($nextevent->{"type"} == $SEND_PACKET) {
+      event_send_packet($nextevent);
+    } else {
+      die "Unrecognized event type " . $nextevent->{"type"};
+    }
+  }
+}
+
+sub broadcast {
+  my ($lan, $msg, $from) = @_;
+
+#  mylog("Driver", "Broadcasting '$msg' to $lan");
+
+  foreach my $sock (keys %{ $lans{$lan}}) {
+    my $handle = get_handle($sock);
+
+    if ($$handle->fileno != $from) {
+      $$handle->send($msg);
+    }
+  }
+}
+
+sub get_path {
+  my ($id) = @_;
+
+  return "\0" . get_name($id) . ("\0" x 256);
+}
+
+sub get_name {
+  my ($id) = @_;
+
+  return "#$username#$$#$id";
+}
+
+sub mylog {
+  my ($obj, $msg) = @_;
+
+  print sprintf("[%8.4f", time - $start) . " " . sprintf("%12s", $obj) . "] $msg\n";
+}
+
+sub add_handle {
+  my ($obj, $name) = @_;
+
+  $handles{$$obj->fileno} = $obj;
+  $ids{$$obj->fileno} = $name;
+  $sel->add($$obj);
+}
+
+sub get_id {
+  my ($obj) = @_;
+
+  return $ids{$$obj->fileno};
+}
+
+sub get_handle {
+  my ($fileno) = @_;
+
+  return $handles{$fileno};
+}
+
+sub remove_handle {
+  my ($obj) = @_;
+
+  delete $handles{$$obj->fileno};
+  $sel->remove($$obj);
+}
+
+sub format_message {
+  my ($id, $root, $cost, $port) = @_;
+
+  my %hash = { id => $id, root => $root, cost => $cost, port => $port };
+
+  return json_encode(%hash);
+}
+
+
+sub add_event {
+  my ($event) = @_;
+
+  push @events, $event;
+  @events = sort { $a->{"time"} <=> $b->{"time"} } @events;
+}
+
+sub get_next_event {
+  return $events[0];
+}
+
+sub remove_event {
+  shift @events;
+}
+
+sub event_stop {
+  my ($event) = @_;
+
+  foreach my $pid (values %processes) {
+    kill(9, $pid);
+  }
+
+  print "Simulation finished.\n";
+  print "Total packets sent: $TOTAL_PACKETS\n";
+ 
+  my $tmsg = keys %messages;
+  my $rmsg = 0;
+  my $dmsg = 0;
+  map { $rmsg += ($_ > 0 ? 1 : 0); $dmsg += ($_ > 1 ? 1 : 0); } values %messages;
+
+  my @rmsg = ();
+  my @dmsg = ();
+  foreach my $msg (keys %messages) {
+    if ($messages{$msg} == 0) {
+      push @rmsg, $msg;
+    }
+
+    if ($messages{$msg} > 1) {
+      push @dmsg, $msg;
+    }
+  }
+
+  print "Total data packets sent: $tmsg\n";
+  print "Total data packets received: $rmsg\n";
+  print "Total data packets dropped: " . ($tmsg - $rmsg) . "  (message ids " . join(", ", sort {$a <=> $b} @rmsg) . ")\n";
+  print "Total data packets duplicated: $dmsg  (message ids " . join(", ", sort {$a <=> $b} @dmsg) . ")\n";
+  print "Data packet delivery ratio: " . sprintf("%.6f", $rmsg/$tmsg) . "\n";
+ 
+  exit(0);
+}
+
+sub event_start_bridge {
+  my ($event) = @_;
+  my $id = $event->{"bridge"};
+
+  my $args = join(" ", map { get_name($_) } @{ $event->{"lans"}});
+#  mylog("Driver", "Launching './3700bridge $id $args'");
+
+  my $IN = new IO::Handle;
+  my $OUT = new IO::Handle;
+  my $ERR = new IO::Handle;
+  my $subprocess = open3($IN, $OUT, $ERR, "./3700bridge $id $args");
+  add_handle(\$OUT, "Bridge $id");
+  add_handle(\$ERR, "Bridge $id");
+  $OUT->autoflush(1);
+  $ERR->autoflush(1);
+
+  $processes{$id} = $subprocess;
+}
+
+sub event_stop_bridge {
+  my ($event) = @_;
+
+  kill(9, $processes{$event->{"bridge"}});
+  delete $processes{$event->{"bridge"}};
+}
+
+sub event_send_packet {
+  my ($event) = @_;
+  my $socket = $hosts{$event->{"source"}};
+  my $msg = encode_json({'source' => $event->{"source"}, 'dest' => $event->{"dest"}, 'type' => $DATA, 'message' => { 'id' => $event->{"id"} } });
+
+  $messages{$event->{"id"} + 0} = 0; 
+
+  broadcast($socket->fileno, $msg, -1);
+  mylog("Host " . $event->{"source"}, "Sent message " . $event->{"id"} . " to " . $event->{"dest"});
+  recv_message($socket, $msg, get_id(\$socket));
+}
+
+sub add_host {
+  my ($host, $lan) = @_;
+
+  chomp($host);
+  mylog("Driver", "Starting host $host on " . $ids{$lan->fileno});
+  $hosts{$host} = $lan;
+}
+
+sub recv_message {
+  my ($lan, $msg, $name) = @_;
+
+  $TOTAL_PACKETS++;
+
+  my $message = decode_json($msg);
+  if ($message->{"type"} eq $DATA) {    
+    if ((exists $hosts{$message->{"dest"}}) && ($lan == $hosts{$message->{"dest"}})) {
+      $messages{$message->{"message"}->{"id"} + 0} ++;
+      mylog("Host " . $message->{"dest"}, "Received message " . $message->{"message"}->{"id"} . " from " . $message->{"source"});
+    }
+  }
+}
+

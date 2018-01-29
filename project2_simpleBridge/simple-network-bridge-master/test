@@ -1,0 +1,124 @@
+#!/usr/bin/perl
+use Sys::Hostname;
+
+my $SEMESTER = "cs3700f16";
+my $CODEDIR = "/course/cs3700f16/code/project2";
+my $STATSDIR = "/course/cs3700f16/stats/project2";
+my $BRIDGE = "3700bridge";
+my $RUN = "run";
+
+if (! (-e $BRIDGE)) {
+  die("Unable to find executable '$BRIDGE'.");
+}
+
+if (! (-e $RUN)) {
+  die("Unable to find executable '$RUN'.");
+}
+
+print "Basic (no failures, no new bridges) tests (PDR = 1.0)\n";
+runTest("One bridge, one LAN", "simple-1.conf", 1);
+runTest("One bridge, two LANs", "simple-2.conf", 1);
+runTest("One bridge, three LANs", "simple-3.conf", 1);
+runTest("Two bridges, one LAN", "simple-4.conf", 1);
+runTest("Two bridges, two LANs", "simple-5.conf", 1);
+runTest("Three bridges, eight LANs", "simple-6.conf", 1);
+runTest("Eight bridges, eight LANs", "simple-7.conf", 1);
+
+print "\nIntermediate (no failures, new bridges) tests (PDR > 0.975)\n";
+runTest("Three bridges, two LANs", "intermediate-1.conf", 0.975);
+runTest("Four bridges, three LANs", "intermediate-2.conf", 0.975);
+runTest("Eight bridges, eight LANs", "intermediate-3.conf", 0.975);
+runTest("Eight bridges, eight LANs", "intermediate-4.conf", 0.975);
+
+print "\nAdvanced (failures, new bridges) tests (PDR > 0.8)\n";
+runTest("Three bridges, two LANs", "advanced-1.conf", 0.8);
+runTest("Four bridges, three LANs", "advanced-2.conf", 0.8);
+runTest("Eight bridges, eight LANs", "advanced-3.conf", 0.8);
+
+print "\nPerformance tests\n";
+unlink($STATSDIR . "/" . getpwuid($<));
+runPerfTest("Three bridges, two LANs", "advanced-1.conf");
+runPerfTest("Four bridges, three LANs", "advanced-2.conf");
+runPerfTest("Eight bridges, eight LANs", "advanced-3.conf");
+
+sub runTest {
+  my ($problem, $args, $pdr) = @_;
+
+  print pad("  $problem", 60);
+  $output = `./run $CODEDIR/$args`;
+
+  if ($output =~ m|Data packet delivery ratio: ([0-9\.]*)|) {
+    if ($1 >= $pdr) {
+      print "[PASS]\n";
+    } else {
+      print "[FAIL]\n";
+      $output =~ s/(\[.*\n)//g;
+      print $output;
+    }
+  } else {
+    print "[ERROR]\n";
+  }
+}
+
+sub runPerfTest {
+  my ($problem, $args) = @_;
+
+  print pad("  $problem", 60);
+  $output = `./run $CODEDIR/$args`;
+
+  my $pdr = -1;
+  my $packets = -1;
+
+  if ($output =~ m|Data packet delivery ratio: ([0-9\.]*)|) {
+    $pdr = $1;
+  }
+
+  if ($output =~ m|Total packets sent: ([0-9]*)|) {
+    $packets = $1;
+  }
+
+  if ($pdr >= 0) {
+    if ($pdr > 0.8) {
+      print "\n";
+
+      post($problem, $packets, $pdr);
+
+      print("    $packets packets sent, $pdr delivery ratio\n");
+    } else {
+      print "[FAIL]\n";
+      print("    $packets packets sent, $pdr delivery ratio\n");
+    }
+  } else {
+    print "[ERROR]\n";
+  }
+}
+
+sub post {
+  my ($problem, $packets, $pdr) = @_;
+
+  my $u = getpwuid($<);
+  my $username = pad($u, 40);
+  open(F, ">> $STATSDIR/$u");
+  print F "$problem\t$username\t$packets\t$pdr\n";
+  close(F);
+}
+
+sub pad {
+  my ($name, $len) = @_;
+  while (length($name) < $len) {
+    $name = "$name ";
+  }
+  if (length($name) > $len) {
+    $name = substr($name, 0, $len-3) . "...";
+  }
+  return $name;
+}
+
+sub format_bytes {
+  my ($a) = @_;
+
+  if ($a < 1024) { return $a; }
+  if ($a < 1024 * 1024) { return int($a/1024) . "K"; }
+  if ($a < 1024 * 1024 * 1024) { return int($a/(1024*1024)) . "M"; }
+  if ($a < 1024 * 1024 * 1024 * 1024) { return int($a/(1024*1024*1024)) . "G"; }
+}
