@@ -4,80 +4,193 @@ import sys
 import socket
 import select
 import json
- 
+import time
+import sched
+
+start_build_bridge_time = 9999999999999
+data_fwd = False
 forwarding_table = {}
+my_bid = sys.argv[1]
+root = my_bid
+cost = 0
+root_port = -1  #self
+recv_bpdus_from = []
+designated_ports = []
+
+
 
 # pads the name with null bytes at the end
 def pad(name):
         result = '\0' + name
         while len(result) < 108:
                 result += '\0'
-        print(result)
         return result
+
+"""
+    jsdata: JSONObject
+    port: Int
+    sockets: Array[Socket]
+    --- rebroadcast data packets given to us ---
+"""
+def forward_data(jsdata, from_port, sockets):
+
+    dest = jsdata['dest']
+    source = jsdata['source']
+    # check to make sure that if the source is in the f_table, it's
+    # coming from that port
+
+    if source not in forwarding_table:
+        forwarding_table[source] = from_port
+    """
+    elif source in forwarding_table and forwarding_table[source] != from_port:
+        #drop the packet if it comes from a port that it shouldn't
+        print("Not Forwarding Message %d" % (jsdata['message']['id']))
+        return
+    """
     
-def rebroadcast(data_as_string, port):
-    data = json.loads(data_as_string)
-    
-    dest = data['dest'];
-    source = data['source']
-    forwarding_table[source] = port
-    print("adding: " + str(source) + ", " + str(port) + " to forwarding table")
     if dest not in forwarding_table:
-        print('forwarding data through all ports')
-        print(data_as_string)
-        for sending_port in range(len(sockets)):
-            if port != sending_port:
-                sockets[sending_port].send(data_as_string)
+        #print(forwarding_table)
+        print('Broadcasting Message %d to all ports' % (jsdata['message']['id']))
+        print('came from %d port, %s source' % (from_port, jsdata['source']))
+        for to_port in range(len(sockets)):
+            port_enabled = to_port in designated_ports or to_port == root_port or to_port not in recv_bpdus_from
+            if from_port != to_port and port_enabled:
+                sockets[to_port].send(json.dumps(jsdata))
     else:
-        print('forwarding data through entry in table')
-        print(data_as_string)
+        #print(json.dumps(jsdata))
         dest_port = forwarding_table[dest]
-        if dest_port != port:
-            sockets[dest_port].send(data_as_string)
+        if dest_port != from_port:
+            sockets[dest_port].send(json.dumps(jsdata))
+            print('Forwarding message %d to port %d' % (jsdata['message']['id'], from_port))
+
+
+"""
+    sockets: Array[Socket]
+    --- Broadcast my BPDU message to all ports --- 
+"""
+def broadcast_BPDU(sockets):
+    for soc in sockets:
+        bpdu_msg = {"source": my_bid, "dest": "ffff", "type": "bpdu",
+                "message":{"id":my_bid, "root": root, "cost": cost, "port" : sockets.index(soc)}}
+        soc.send(json.dumps(bpdu_msg))
+
+"""
+    jsdata: JSONO
+    port: Int
+    sockets: Array[Socket]
+    --- Receive BPDU message, if changes are needed, make changes and rebroadcast BPDU ---
+"""
+# if use me -> designated port
+# if use other -> root port
+def recv_bpdu(jsdata, port, sockets):
+    global root, cost, root_port, designated_ports, recv_bpdus_from
+    new_root = jsdata['message']['root']
+    source_id = jsdata['message']['id']
+    new_cost = jsdata['message']['cost']
     
+    my_bid_in_b16 = int(my_bid, 16)  # my unique bridge id
+    recv_bid_in_b16 = int(source_id, 16)  # the bridgeid of where the BPDU came from
+    recv_rbid_in_b16 = int(new_root, 16)  # The root that the BPDU's source is using
+    my_rbid_in_b16 = int(root, 16)  # The root I am using
     
+    if source_id == my_bid:
+        if jsdata['message']['port'] < port:
+            recv_bpdus_from.append(port)
+        return
+    #recv_bpdus_from.append(port)
     
+    if my_rbid_in_b16 < recv_rbid_in_b16:
+        print("My Root is correct: %s" % root)
+        designated_ports.append(port)  # add the port to the designated
+    elif my_rbid_in_b16 == recv_bid_in_b16 and cost < new_cost + 1:
+        print("Agreed on Root: %s, Cost: %d" % (root, cost))
+        designated_ports.append(port)  # add the port to the designated
+    elif my_rbid_in_b16 == recv_rbid_in_b16 and cost == new_cost + 1 and my_bid_in_b16 < recv_bid_in_b16:
+        #designated_ports.append(port)  # add the port to the designated
+        print("My Root is correct, and our bid is smaller: %s" % root)
+    else:
+        # Case B
+        root = new_root
+        cost = new_cost + 1
+        root_port = port  # add the port to the root
+        print("New Root: %s/%s" % (my_bid, root))
+        broadcast_BPDU(sockets)
+    # enable this port, root port, (designated ports) ==? all ports in designated bridge
+
+
+"""
+    queued_packets: Array[Array[Packet]]
+    port: Int 
+    sockets: Array[Sockets]
+"""
+def handle_packets(queued_packets, port, sockets):
+    global data_fwd, start_build_bridge_time, recv_bpdus_from, designated_ports
+    
+    port_enabled = port in designated_ports or port == root_port or port not in recv_bpdus_from
+    #print('port %d is %r, des: %r, root: %r, not in: %r' % (port, port_enabled, port in designated_ports, port == root_port, port not in recv_bpdus_from))
+    
+    now = int(round(time.time() * 1000))
+
+    if now - start_build_bridge_time > 500:
+        data_fwd = True
+
+    # go through queued packets, handle them
+    for packets_on_port in queued_packets:
+        for packet in packets_on_port:
+            if packet['type'] == 'bpdu':  # process a bpdu message
+                recv_bpdu(packet, port, sockets)
+                queued_packets[queued_packets.index(packets_on_port)].remove(packet) #remove it from QL
+            elif data_fwd and packet['type'] == 'data':  # handling data
+                # TODO do we drop data on disabled ports?
+                if port_enabled:  # only forward data if the port is not disabled
+                    forward_data(packet, port, sockets)
+                # if we're handling data, process data packets
+                queued_packets[queued_packets.index(packets_on_port)].remove(packet)
+
+def broadcast_BPDU_periodically(sockets):
+    # broadcast_BPDU(sockets)
+    # s = sched.scheduler(time.time, time.sleep)
+    #
+    # s.enter(500, 1, broadcast_BPDU_periodically(), (sockets))
+    while True:
+        broadcast_BPDU(sockets)
+        time.sleep(0.5)  # 500ms
+
+def main():
+    global start_build_bridge_time
+
+    id = sys.argv[1]
+    LAN = sys.argv[2:]
+    sockets = []
+    queued_packets = []
+    # creates sockets and connects to them
+    for x in range(len(LAN)):
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        s.connect(pad(LAN[x]))  # connect to the port
+        sockets.append(s)  # add it to the available ports
+        # open_ports.append(sockets.index(s))   TODO we don't want to enable all ports
+        queued_packets.append([])  # there are no packets queued, so add empty array
+        print("Bridge " + id + " starting up in py\n")
+
+    start_build_bridge_time = int(round(time.time() * 1000))  # record the time of start building bridge
+
+    broadcast_BPDU(sockets)  # send my bpdu message, duplicate packets
+    # broadcast_BPDU_periodically(sockets)  # dropped many packets
+
+    # Main loop
+    while True:
+        # Calls select with all the sockets; change the timeout value (1)
+        ready, ignore, ignore2 = select.select(sockets, [], [], 1)
+
+        # Reads from each fo the ready sockets
+        for sock in ready:
+            data = sock.recv(1500)
+            jsdata = json.loads(data)
+            port = sockets.index(sock)
+            queued_packets[port].append(jsdata)
+            handle_packets(queued_packets, port, sockets)
+
+
 if __name__ == "__main__":
-        id = sys.argv[1]
-        LAN = sys.argv[2:]
-        sockets = []
-        socket_addrs = []
-        
-        # creates sockets and connects to them
-        for x in range(len(LAN)):
-                s = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
-                print LAN[x]
-                s.connect(pad(LAN[x]))
-                socket_addrs.append(LAN[x])
-                sockets.append(s)
-        
-        ## closes duplicate ports
-        remove_list = []
-        
-        for n in range(len(socket_addrs)):
-            temp = socket_addrs[n]
-            socket_addrs[n] = -1
-            if temp in socket_addrs:
-                sockets[n].close()
-                remove_list.append(n)
-            else:
-                socket_addrs[n] = temp
-        
-        for remove_node in reversed(remove_list):
-            del(socket_addrs[remove_node])
-            del(sockets[remove_node])
-        
-        print "Bridge " + id + " starting up in py\n"
- 
-    
-        # Main loop
-        while True:
-                # Calls select with all the sockets; change the timeout value (1)
-                ready, ignore, ignore2 = select.select(sockets, [], [], 1)
- 
-                # Reads from each fo the ready sockets
-                for x in ready:
-                        data = x.recv(1500)
-                        port = sockets.index(x)
-                        rebroadcast(data, port)
+    main()
 
