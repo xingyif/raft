@@ -1,9 +1,9 @@
 #!/usr/bin/perl
 use Sys::Hostname;
 
-my $SEMESTER = "cs3700f16";
-my $CODEDIR = "/course/cs3700f16/code/project2";
-my $STATSDIR = "/course/cs3700f16/stats/project2";
+my $SEMESTER = "cs3700f17";
+my $CODEDIR = "/course/cs3700f17/code/project2";
+my $STATSDIR = "/course/cs3700f17/stats/project2";
 my $BRIDGE = "3700bridge";
 my $RUN = "run";
 
