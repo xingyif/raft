@@ -99,6 +99,8 @@ def forward_packet(port, packet):
             port_enabled = i in designated_ports or i not in recv_bpdus_from or i == root_port
             if port_enabled and i != port:
                 sockets[i].sendall(json.dumps(packet))
+            elif not port_enabled:
+                print 'Disabled port: %s/%d' % (my_bid, port)
 
 
 def handle_packets():
@@ -121,8 +123,10 @@ def handle_packets():
                 if port_enabled:
                     print 'Received message %d on port %d from %s to %s' % (packet['message']['id'], port, packet['source'], packet['dest'])
                     forward_packet(port, packet)
+                else:
+                    print 'Disabled port: %s/%d' % (my_bid, port)
                 queued_packets[port].remove(packet)
- 
+
     
 def main():
     global sockets, queued_packets, bridge_up, bpdu_bw_time
