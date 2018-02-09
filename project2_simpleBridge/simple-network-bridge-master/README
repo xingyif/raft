@@ -1,0 +1,45 @@
+*High-level Approach:
+The bridge handles two types of packets, BPDUs and data.
+Before the minimal spaining tree is built up, the bridge queued all the data packets.
+
+The spaining tree is constructed with the following order:
+1. Assumes self is the root bridge, until it receives a BPDU that has a smaller root id
+2. Determine root port of the bridge
+3. Determine designated port(s) of the bridge
+4. Disable ports
+
+It handled the BPDUs by viewing its contents:
+  if the current root id is smaller than the received BPDU's root id,
+  then the current root id does not change
+
+  if the current root id is the same as the received BPDU's root id,
+  and the cost to the root of the current bridge is smaller than the cost in the BPDU
+  then the port that the bridge received the BPDU becomes a designated port
+
+  if the current root id is the same as the received BPDU's root id,
+  and the cost to the root of the current bridge is smaller than the cost in the BPDU,
+  and the current bridge id is smaller than the received BPDU's bridge id,
+  then the port that the bridge received the BPDU becomes a designated port
+
+  else, the root bridge id of the current bridge changes to the BPDU's root bridge id
+  the root port of the bridge also changes to the port that the bridge received the BPDU on,
+  the cost to the root becomes the cost on the BPDU + 1,
+  the bridge also broadcasts the information to its neighbors
+
+After the spaining tree is built up, the bridge forwards data packets based on the forwarding table.
+
+
+*Challenges Faced:
+We were challenged when we ran simple-6.conf. 84 data packets were dropped.
+It was extremly difficult to figure out the reason behind it.
+Since we're programming on the network, we had to use print statements to debug the program.
+
+*How I tested the code:
+The code was tested by running different configuration files with different number
+of LANs, bridges, and data packets. Each tests record how many data packets are forwarded,
+and how many data packets are dropped. Based on the final result, we are able to test if
+the bridge is able to successfully forward data without duplicates or without dropping any
+data packets.
+
+
+
