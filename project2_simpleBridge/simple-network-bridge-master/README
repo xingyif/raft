@@ -8,7 +8,7 @@ The spanning tree is constructed with the following order:
 3. Determine designated port(s) of the bridge
 4. Disable ports
 
-It handled the BPDUs by viewing its contents:
+It handles the BPDUs by viewing its contents:
   if the current root id is smaller than the received BPDU's root id,
   then the current root id does not change
 
@@ -27,12 +27,27 @@ It handled the BPDUs by viewing its contents:
   the bridge also broadcasts the information to its neighbors
 
 After the spaining tree is built up, the bridge forwards data packets based on the forwarding table.
+The forwarding table records the source bridge id with the port number.
+When it tries to send data to the destination bridge,
+1. it checks if the port number exists in the table, 
+2. if yes, forward to the port
+3. if not, it forwards the data to all other ports except itself
+4. if self is destination, then do not forward the data
+
+It only forwards to enabled ports, and it does not forward to its own port
+
+A port is enabled if:
+1. it is a root port
+2. it is a designated port
+3. it has never received any BPDU
 
 
 *Challenges Faced:
 We were challenged when we ran simple-6.conf. 84 data packets were dropped.
-It was extremely difficult to figure out the reason behind it.
+It was extremely difficult to figure out why the packets were dropped.
 Since we're programming on the network, we had to use print statements to debug the program.
+Not being able to debug efficiently is challenging.
+
 
 *How I tested the code:
 The code was tested by running different configuration files with different number
