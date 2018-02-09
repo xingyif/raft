@@ -13,13 +13,12 @@ recv_bpdus_from = []
 my_bid = sys.argv[1]
 root = my_bid
 root_port = -1
-data_fwd = False
 bridge_up = -1
 designated_ports = []
 cost = 0
 des_assign_time = 1000 #constant
 data_send_time = 3750 #constant
-bpdu_bw_time = 50 #constant
+bpdu_bw_time = 500 #constant
 
 # pads the name with null bytes at the end
 def pad(name):
@@ -27,14 +26,20 @@ def pad(name):
         while len(result) < 108:
                 result += '\0'
         return result
-    
+
+
 def recv_BPDU(packet, port):
     global bridge_up, designated_ports, root, cost, root_port
-    my_bid_in_b16 = int(my_bid, 16)  # my unique bridge id
-    recv_bid_in_b16 = int(packet['source'], 16)  # the bridgeid of where the BPDU came from
-    recv_rbid_in_b16 = int(packet['message']['root'], 16)  # The root that the BPDU's source is using
-    my_rbid_in_b16 = int(root, 16) # The root I am using
-    
+    # my unique bridge id
+    my_bid_in_b16 = int(my_bid, 16)
+    # the bridgeid of where the BPDU came from
+    recv_bid_in_b16 = int(packet['source'], 16)
+    # The root that the BPDU's source is using
+    recv_rbid_in_b16 = int(packet['message']['root'], 16)
+    # The root I am using
+    my_rbid_in_b16 = int(root, 16)
+
+    # keep track of which ports have received BPDU
     if packet['source'] == my_bid and packet['message']['port'] < port:
         recv_bpdus_from.append(port)
         return
@@ -43,31 +48,39 @@ def recv_BPDU(packet, port):
     
     recv_bpdus_from.append(port)
     now = int(round(time.time() * 1000))
-    if now - bridge_up > des_assign_time and my_bid_in_b16 < recv_bid_in_b16 and port not in designated_ports:
+    # determine the designated ports
+    if now - bridge_up > des_assign_time and my_rbid_in_b16 == recv_rbid_in_b16 and my_bid_in_b16 < recv_bid_in_b16 and port not in designated_ports:
         print 'Designated port: %s/%d' % (my_bid, port)
         designated_ports.append(port)
         return
-    
+
+    # ignore the BPDU is my root bridge id is better
     if recv_rbid_in_b16 >= my_rbid_in_b16 and packet['message']['cost'] >= cost:
         pass
     else:
         new_root = packet['message']['root']
         cost = packet['message']['cost']
-        
-        if root != new_root:
+
+        # change root bridge id if BPDU's root bridge id is better
+        if root >= new_root:
             root = new_root
             print 'New root: %s/%s' % (my_bid, root)
-        if port != root_port:
-            print 'Root port: %s/%d' % (my_bid, port)
-            root_port = port
-        broadcast_BPDU()
-        
+            # change root port
+            if port != root_port:
+                root_port = port
+                print 'Root port: %s/%d' % (my_bid, port)
+            # broadcast change to neighbors
+            broadcast_BPDU()
+
+
 def broadcast_BPDU():
-    global sockets
+    global sockets, my_bid, root, cost
+    # broadcast BPDU to all neightbors
     for soc in sockets:
         bpdu_msg = {"source": my_bid, "dest": "ffff", "type": "bpdu",
                 "message":{"id":my_bid, "root": root, "cost": cost, "port" : sockets.index(soc)}}
         soc.send(json.dumps(bpdu_msg))
+
 
 def forward_packet(port, packet):
     global forward_table
@@ -76,27 +89,35 @@ def forward_packet(port, packet):
     if packet['dest'] in forward_table and forward_table[packet['dest']] != port:
         sockets[forward_table[packet['dest']]].sendall(json.dumps(packet))
         print('Forwarding message %d to port %d' % (packet['message']['id'], forward_table[packet['dest']]))
-    # if destination arrived
+    # if arrived at destination
     elif packet['dest'] in forward_table and forward_table[packet['dest']] == port:
         print 'Not forwarding message'
     # if destination not in the table, and destination not arrived
     else:
         print 'Broadcasting message %d to all ports' % packet['message']['id']
         for i in range(len(sockets)):
-            socket_enabled = i in designated_ports or i not in recv_bpdus_from or i == root_port
-            if (socket_enabled and i != port):
+            port_enabled = i in designated_ports or i not in recv_bpdus_from or i == root_port
+            if port_enabled and i != port:
                 sockets[i].sendall(json.dumps(packet))
-                
+
+
 def handle_packets():
-    global queued_packets, recv_bpdus_from, designated_ports
+    global queued_packets, recv_bpdus_from, designated_ports, bridge_up, data_send_time
     now = int(round(time.time() * 1000))
     for port in range(len(queued_packets)):
+        # port is enabled:
+        # 1. if it is a root port
+        # 2. if is has never received a BPDU
+        # 3. if it is a designated port
         port_enabled = port == root_port or port not in recv_bpdus_from or port in designated_ports
         for packet in list(queued_packets[port]):
+            # handle BPDU packets
             if packet['type'] == 'bpdu':
                 recv_BPDU(packet, port)
                 queued_packets[port].remove(packet)
+            # handle data packets, only after spanning tree is built
             elif now - bridge_up > data_send_time:
+                # only forward data to enabled port
                 if port_enabled:
                     print 'Received message %d on port %d from %s to %s' % (packet['message']['id'], port, packet['source'], packet['dest'])
                     forward_packet(port, packet)
@@ -122,7 +143,8 @@ def main():
     broadcast_BPDU()
     # Main loop
     while True:
-        
+
+        # broadcast BPDU periodically
         now = int(round(time.time() * 1000))
         if now - last_bpdu >= bpdu_bw_time:
             broadcast_BPDU()
