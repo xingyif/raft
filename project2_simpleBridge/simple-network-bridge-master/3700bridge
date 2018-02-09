@@ -18,7 +18,7 @@ bridge_up = -1
 designated_ports = []
 cost = 0
 des_assign_time = 1000 #constant
-data_send_time = 1750 #constant
+data_send_time = 3750 #constant
 bpdu_bw_time = 50 #constant
 
 # pads the name with null bytes at the end
