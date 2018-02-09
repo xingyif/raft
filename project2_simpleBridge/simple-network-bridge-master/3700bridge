@@ -89,7 +89,7 @@ def handle_packets():
     now = int(round(time.time() * 1000))
     for port in range(len(queued_packets)):
         port_enabled = port == root_port or port not in recv_bpdus_from or port in designated_ports
-        for packet in queued_packets[port]:
+        for packet in list(queued_packets[port]):
             if packet['type'] == 'bpdu':
                 recv_BPDU(packet, port)
                 queued_packets[port].remove(packet)
