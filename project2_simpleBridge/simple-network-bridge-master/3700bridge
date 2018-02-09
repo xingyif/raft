@@ -72,11 +72,14 @@ def broadcast_BPDU():
 def forward_packet(port, packet):
     global forward_table
     forward_table[packet['source']] = port
+    # if the destination bridge of the packet is in the table, then forward to dest
     if packet['dest'] in forward_table and forward_table[packet['dest']] != port:
         sockets[forward_table[packet['dest']]].sendall(json.dumps(packet))
         print('Forwarding message %d to port %d' % (packet['message']['id'], forward_table[packet['dest']]))
+    # if destination arrived
     elif packet['dest'] in forward_table and forward_table[packet['dest']] == port:
         print 'Not forwarding message'
+    # if destination not in the table, and destination not arrived
     else:
         print 'Broadcasting message %d to all ports' % packet['message']['id']
         for i in range(len(sockets)):

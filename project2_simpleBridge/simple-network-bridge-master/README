@@ -1,8 +1,8 @@
 *High-level Approach:
 The bridge handles two types of packets, BPDUs and data.
-Before the minimal spaining tree is built up, the bridge queued all the data packets.
+Before the minimal spanning tree is built up, the bridge queued all the data packets.
 
-The spaining tree is constructed with the following order:
+The spanning tree is constructed with the following order:
 1. Assumes self is the root bridge, until it receives a BPDU that has a smaller root id
 2. Determine root port of the bridge
 3. Determine designated port(s) of the bridge
@@ -31,7 +31,7 @@ After the spaining tree is built up, the bridge forwards data packets based on t
 
 *Challenges Faced:
 We were challenged when we ran simple-6.conf. 84 data packets were dropped.
-It was extremly difficult to figure out the reason behind it.
+It was extremely difficult to figure out the reason behind it.
 Since we're programming on the network, we had to use print statements to debug the program.
 
 *How I tested the code:
