@@ -16,9 +16,9 @@ root_port = -1
 bridge_up = -1
 designated_ports = []
 cost = 0
-des_assign_time = 1000 #constant
-data_send_time = 3750 #constant
-bpdu_bw_time = 500 #constant
+des_assign_time = 1000 # milliseconds to wait before assigning designated ports
+data_send_time = 3750 # milliseconds to wait before handling data packets
+bpdu_bw_time = 500 # periodically broadcast BPDU interval
 
 # pads the name with null bytes at the end
 def pad(name):
@@ -54,7 +54,7 @@ def recv_BPDU(packet, port):
         designated_ports.append(port)
         return
 
-    # ignore the BPDU is my root bridge id is better
+    # ignore the BPDU if my root bridge id is better
     if recv_rbid_in_b16 >= my_rbid_in_b16 and packet['message']['cost'] >= cost:
         pass
     else:
