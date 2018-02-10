@@ -16,6 +16,7 @@ root_port = -1
 bridge_up = -1
 designated_ports = []
 cost = 0
+last_BPDU_received_time = 0 # last time received BPDU
 des_assign_time = 1000 # milliseconds to wait before assigning designated ports
 data_send_time = 3750 # milliseconds to wait before handling data packets
 bpdu_bw_time = 500 # periodically broadcast BPDU interval
@@ -104,8 +105,8 @@ def forward_packet(port, packet):
 
 
 def handle_packets():
-    global queued_packets, recv_bpdus_from, designated_ports, bridge_up, data_send_time
-    now = int(round(time.time() * 1000))
+    global queued_packets, recv_bpdus_from, designated_ports, bridge_up, data_send_time, last_BPDU_received_time
+
     for port in range(len(queued_packets)):
         # port is enabled:
         # 1. if it is a root port
@@ -113,8 +114,12 @@ def handle_packets():
         # 3. if it is a designated port
         port_enabled = port == root_port or port not in recv_bpdus_from or port in designated_ports
         for packet in list(queued_packets[port]):
+
+            now = int(round(time.time() * 1000))
+
             # handle BPDU packets
             if packet['type'] == 'bpdu':
+                last_BPDU_received_time = now
                 recv_BPDU(packet, port)
                 queued_packets[port].remove(packet)
             # handle data packets, only after spanning tree is built
@@ -129,7 +134,7 @@ def handle_packets():
 
     
 def main():
-    global sockets, queued_packets, bridge_up, bpdu_bw_time
+    global sockets, queued_packets, bridge_up, bpdu_bw_time, root, root_port, designated_ports
     id = sys.argv[1]
     LAN = sys.argv[2:]
     
@@ -153,7 +158,16 @@ def main():
         if now - last_bpdu >= bpdu_bw_time:
             broadcast_BPDU()
             last_bpdu = now
-        
+
+        # if don't hear from neighbor within 500 milliseconds, then rebuild the bridge
+        if now - last_BPDU_received_time >= 500:
+            root = my_bid
+            root_port = -1
+            designated_ports = []
+            broadcast_BPDU()
+            last_bpdu = now
+
+
         # Calls select with all the sockets; change the timeout value (1)
         ready, ignore, ignore2 = select.select(sockets, [], [], 1)
  
