@@ -1,0 +1,33 @@
+#!usr/bin/python -u
+
+import sys
+import socket
+import json
+import time
+import datetime
+import select
+from packets import *
+
+IP_PORT = sys.argv[1]
+HOST = IP_PORT[0:IP_PORT.find(":")]
+PORT = int(IP_PORT[IP_PORT.find(":") + 1:])
+HOST_PORT = (HOST, PORT)
+sock = socket.socket(AF_INET, SOCK_DGRAM)
+"""
+    sends a packet to a designated connection
+    @param packet_to_send - SendPacket - the packet we're sending
+"""
+def send_packet(packet_to_send):
+    sock.sendto(packet_to_send.get_json(), HOST_PORT)
+
+def read_data():
+
+def main():
+
+
+
+if __name__ == "__main__":
+    main()
+
+
+
