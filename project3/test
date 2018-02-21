@@ -1,0 +1,121 @@
+#!/usr/bin/perl
+use Sys::Hostname;
+
+my $SEMESTER = "cs3700sp18";
+my $SEND = "3700send";
+my $RECV = "3700recv";
+my $RUN = "run";
+
+if (! ((hostname() eq "cs3600tcp") || (hostname() eq "gordon.ccs.neu.edu"))) {
+  die("Error: This script can only be run on cs3600tcp or gordon");
+}
+
+if (! (-e $SEND)) {
+  die("Unable to find executable '$SEND'.");
+}
+
+if (! (-e $RECV)) {
+  die("Unable to find executable '$RECV'.");
+}
+
+if (! (-e $RUN)) {
+  die("Unable to find executable '$RUN'.");
+}
+
+print "Basic (friendly network) tests\n";
+runTest("Small 1 Mb/s, 10 ms latency", "", "--size small");
+runTest("Small 0.1 Mb/s 10 ms latency", "--bandwidth 0.1", "--size small");
+runTest("Small 0.1 Mb/s 50 ms latency", "--bandwidth 0.1 --latency 50", "--size small");
+runTest("Medium 1 Mb/s, 10 ms latency", "", "--size medium");
+runTest("Medium 0.1 Mb/s 10 ms latency", "--bandwidth 0.1", "--size medium");
+runTest("Medium 0.1 Mb/s 50 ms latency", "--bandwidth 0.1 --latency 50", "--size medium");
+runTest("Large 1 Mb/s, 10 ms latency", "", "--size large");
+runTest("Large 0.5 Mb/s 10 ms latency", "--bandwidth 0.5", "--size large");
+runTest("Large 0.1 Mb/s 500 ms latency", "--bandwidth 0.1 --latency 500", "--size large");
+
+print "\nAdvanced tests\n";
+runTest("Small 1Mb/s, 10 ms, 100% duplicate", "--duplicate 100", "--size small");
+runTest("Medium 1Mb/s, 10 ms, 50% reorder 10% drop", "--drop 10 --reorder 50", "--size medium --timeout 10");
+runTest("Medium 1Mb/s, 10 ms, 50% drop", "--drop 50", "--size medium --timeout 10");
+runTest("Medium 1Mb/s, 10 ms, 50% delay 25% duplicate", "--delay 50 --duplicate 25", "--size medium --timeout 10");
+runTest("Medium 5Mb/s, 10 ms, 5% delay 5% duplicate 5% drop", "--bandwidth 5 --delay 5 --duplicate 5 --drop 5", "--size medium --timeout 10");
+runTest("Large 1Mb/s, 10 ms, 10% delay 10% duplicate", "--delay 10 --duplicate 10", "--size large --timeout 10");
+runTest("Large 10Mb/s, 10ms, 1% drop 1% duplicate 1% drop", "--bandwidth 10 --delay 1 --drop 1 --duplicate 1", "--size large --timeout 20");
+
+print "\nPerformance tests\n";
+#unlink("/home/amislove/stats/" . getpwuid($<));
+runPerfTest("Huge 5Mb/s, 10 ms", "--bandwidth 5", "--size huge");
+runPerfTest("Large 5Mb/s, 10 ms, 10% drop", "--bandwidth 5 --drop 10", "--size large");
+runPerfTest("Large 10Mb/s, 50 ms, 10% drop", "--bandwidth 10 --drop 10 --latency 50", "--size large");
+runPerfTest("Large 10Mb/s, 25 ms, 10% drop 10% duplicate 20% delay", "--bandwidth 10 --latency 25 --drop 10 --duplicate 10 --delay 20", "--size large");
+
+sub runTest {
+  my ($problem, $netsim, $args) = @_;
+
+  print pad("  $problem", 60);
+  `/course/$SEMESTER/bin/project3/netsim $netsim`;
+  $output = `./run $args`;
+
+  if ($output =~ m|Data match: Yes|) {
+    print "[PASS]\n";
+  } else {
+    print "[FAIL]\n";
+  }
+}
+
+sub runPerfTest {
+  my ($problem, $netsim, $args) = @_;
+
+  print pad("  $problem", 60);
+  `/course/$SEMESTER/bin/project3/netsim $netsim`;
+  $output = `./run $args`;
+
+  if ($output =~ m|Data match: Yes|) {
+    print "[PASS]\n";
+    
+    my $bytes = "Unknown";
+    my $time = "Unknown";
+
+    if ($output =~ m|Time elapsed: ([0-9\.]*)|) { $time = $1; }
+    if ($output =~ m|Bytes sent: ([0-9\.]*)|) { $bytes = $1; }
+
+    post($problem, $time, $bytes);
+
+    $time = sprintf("%.3f", $time/1000);
+    $bytes = format_bytes($bytes) . "B";
+
+    print("    $time sec elapsed, $bytes sent\n");
+  } else {
+    print "[FAIL]\n";
+  }
+}
+
+sub post {
+  my ($problem, $time, $bytes) = @_;
+
+  my $u = getpwuid($<);
+  my $username = pad($u, 40);
+  open(F, ">> /course/$SEMESTER/stats/project3/$u");
+  print F "$problem\t$username\t$time\t$bytes\n";
+  close(F);
+}
+
+sub pad {
+  my ($name, $len) = @_;
+  while (length($name) < $len) {
+    $name = "$name ";
+  }
+  if (length($name) > $len) {
+    $name = substr($name, 0, $len-3) . "...";
+  }
+  return $name;
+}
+
+sub format_bytes {
+  my ($a) = @_;
+
+  if ($a < 1024) { return $a; }
+  if ($a < 1024 * 1024) { return int($a/1024) . "K"; }
+  if ($a < 1024 * 1024 * 1024) { return int($a/(1024*1024)) . "M"; }
+  if ($a < 1024 * 1024 * 1024 * 1024) { return int($a/(1024*1024*1024)) . "G"; }
+}

@@ -1,0 +1,108 @@
+#!/usr/bin/python -u
+
+import sys
+import socket
+import json
+import time
+import datetime
+import select
+from packets import *
+
+# constant
+DATA_SIZE = 1500
+
+# global
+data_to_send = []
+data__to_be_acked = []
+seq_number = 0
+
+IP_PORT = sys.argv[1]
+HOST = IP_PORT[0:IP_PORT.find(":")]
+PORT = int(IP_PORT[IP_PORT.find(":") + 1:])
+HOST_PORT = (HOST, PORT)
+TIMEOUT = 30
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+"""
+    sends a packet to a designated connection
+    @param packet_to_send - SendPacket - the packet we're sending
+"""
+def send_packet(packet_to_send):
+    sock.sendto(packet_to_send.get_json(), HOST_PORT)
+
+def log(string):
+  sys.stderr.write(datetime.datetime.now().strftime("%H:%M:%S.%f") + " " + string + "\n")
+
+def construct_packet(data, offset):
+    if len(data) > offset + DATA_SIZE:
+        result = data[offset:offset + DATA_SIZE]
+        offset = offset + DATA_SIZE
+    else:
+        result = data[offset:]
+        offset = len(data)
+    
+    
+    return Packet(
+
+"""
+    Constructs a list of packets from the data given, if len(data) < 300, just return [packet]
+    @param data - the data to use to construct packets
+    @return Array[SendingPacket] - the packets constructed from the given data
+"""
+def packets_from_data(data):
+    index = 0
+    result = []
+    while index < len(data):
+        # construct packet w/ 1500 or fewer bytes
+        # increment index by how big the packet is
+        # repeat
+        to_add, index = construct_packet(data, index)
+        result.append(to_add)    
+    
+    return result
+    
+
+def read_data():
+    data_set = []
+    for line in sys.stdin:
+        data_set.append(line)
+    
+    packets_to_send = []
+    for data in data_set:
+        packets_from_data = construct_packets(data)
+        packets_to_send.extend(packets_from_data)
+        
+    """
+    data = sys.stdin.read(DATA_SIZE)
+    if len(data) > 0:
+        # seq, if acked
+        sending_packet = SendingPacket(len(data), time.time() + TIMEOUT, LAST_SEQ + len(data), data, False)
+    """
+
+def recv_acks():
+    global sock
+    
+    log('here')
+    ready, ignore1, ignore2 = select.select([sock], [], [], .1)
+    for s in ready:
+        log(str(s.recvfrom(1000)))
+
+def send_data():
+    pass
+
+def main():
+    
+
+    # loop
+    # reads data and enqueues
+    # sends data from enqueued
+    # receive acks
+    while True:
+        #read_data()
+        #send_data()
+        recv_acks()
+
+if __name__ == "__main__":
+    main()
+
+
+
