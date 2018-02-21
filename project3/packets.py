@@ -14,7 +14,7 @@ class SendPacket:
     @return String
     """
     def get_json():
-        data_as_json = {'eof' = eof, 'data': self.data, 'seq': self.seq, 'size': self.size}
+        data_as_json = {'eof': eof, 'data': self.data, 'seq': self.seq, 'size': self.size}
         return json.dumps(data_as_json)
         
     """
