@@ -32,45 +32,74 @@ def send_packet(packet_to_send):
 def log(string):
   sys.stderr.write(datetime.datetime.now().strftime("%H:%M:%S.%f") + " " + string + "\n")
 
+"""
+    constructs a single packet based on the given data and offset
+    @param data - the data content of the packet
+    @param offset - the offset of the given data compare to the input chunk
+    @return the constructed packet and the new offset
+"""
 def construct_packet(data, offset):
+    # if have more data than 1500 bytes
     if len(data) > offset + DATA_SIZE:
+        # extract 1500 bytes of data
         result = data[offset:offset + DATA_SIZE]
+        # update offset
         offset = offset + DATA_SIZE
+        # construct a sendPacket(size, timeout, seq_num, data, iseof)
+        packet = SendPacket(len(result), TIMEOUT + time.time(), offset, result, False)
+
+    # less than 1500 bytes left
     else:
+        # extract the rest of the data
         result = data[offset:]
+        # update the offset
         offset = len(data)
-    
-    
-    return Packet(
+        # construct a sendPacket(size, timeout, seq_num, data, iseof)
+        packet = SendPacket(len(result), TIMEOUT + time.time(), offset, result, True)
+
+    log("extracting data for one packet: %s" % result)
+    log("new offset: %d" % offset)
+    log("constructed a packet %s" % packet)
+    return packet, offset
 
 """
-    Constructs a list of packets from the data given, if len(data) < 300, just return [packet]
+    Constructs a list of packets from the data given,
+    if len(data) < 1500, just return [packet]
     @param data - the data to use to construct packets
     @return Array[SendingPacket] - the packets constructed from the given data
 """
-def packets_from_data(data):
-    index = 0
-    result = []
-    while index < len(data):
+def construct_packets_from_data(data_line):
+    offset = 0
+    packets = []
+    while offset < len(data_line):
         # construct packet w/ 1500 or fewer bytes
         # increment index by how big the packet is
         # repeat
-        to_add, index = construct_packet(data, index)
-        result.append(to_add)    
-    
-    return result
-    
+        new_packet, offset = construct_packet(data_line, offset)
+        packets.append(new_packet)
 
+    return packets
+
+"""
+    Read input lines and construct data packets (size < 1500 bytes)
+    @return Array[SendingPacket] - the packets constructed from the given data
+"""
 def read_data():
     data_set = []
+    # read in each line and store the lines into data_set list
     for line in sys.stdin:
         data_set.append(line)
-    
+
     packets_to_send = []
-    for data in data_set:
-        packets_from_data = construct_packets(data)
+    # construct a packet for each line
+    for data_line in data_set:
+        # stuff each line to packet(s)
+        packets_from_data = construct_packets_from_data(data_line)
+        # add the packet(s) to the list of packets
         packets_to_send.extend(packets_from_data)
-        
+
+    return packets_to_send
+
     """
     data = sys.stdin.read(DATA_SIZE)
     if len(data) > 0:
@@ -80,8 +109,8 @@ def read_data():
 
 def recv_acks():
     global sock
-    
-    log('here')
+
+    log('in recv_acks')
     ready, ignore1, ignore2 = select.select([sock], [], [], .1)
     for s in ready:
         log(str(s.recvfrom(1000)))
@@ -90,7 +119,7 @@ def send_data():
     pass
 
 def main():
-    
+
 
     # loop
     # reads data and enqueues
