@@ -9,11 +9,11 @@ import select
 from packets import *
 
 # constant
-DATA_SIZE = 1500
+DATA_SIZE = 300
 
 # global
 data_to_send = []
-data__to_be_acked = []
+data_to_be_acked = []
 seq_number = 0
 
 IP_PORT = sys.argv[1]
@@ -21,6 +21,7 @@ HOST = IP_PORT[0:IP_PORT.find(":")]
 PORT = int(IP_PORT[IP_PORT.find(":")+1:])
 HOST_PORT = (HOST, PORT)
 TIMEOUT = 30
+cwnd = 5
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
@@ -29,8 +30,7 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     @param packet_to_send - SendPacket - the packet we're sending
 """
 def send_packet(packet_to_send):
-    sock.sendto(packet_to_send.get_json(), HOST_PORT)
-
+    
 def log(string):
   sys.stderr.write(datetime.datetime.now().strftime("%H:%M:%S.%f") + " " + string + "\n")
 
@@ -41,23 +41,23 @@ def log(string):
     @return the constructed packet and the new offset
 """
 def construct_packet(data, offset):
-    # if have more data than 1500 bytes
+    # if have more data than DATA_SIZE bytes
     if len(data) > offset + DATA_SIZE:
-        # extract 1500 bytes of data
+        # extract DATA_SIZE bytes of data
         result = data[offset:offset + DATA_SIZE]
         # construct a sendPacket(seq_num, data, size, timeout, ack, iseof)
         packet = SendPacket(offset, result, len(result), TIMEOUT + time.time(), False, False)
         # update offset
         offset += DATA_SIZE
         print("after update offset, packetsize < full %d" % offset)
-    # less than 1500 bytes left
+    # less than DATA_SIZE bytes left
     else:
         # extract the rest of the data
-        result = data[offset:] 
+        result = data[offset:]
         # construct a sendPacket(seq_num, data, size, timeout, ack, iseof)
         packet = SendPacket(offset, result, len(result), TIMEOUT + time.time(), False, True)
         # update the offset
-        offset += len(data)
+        offset += len(result)
         print("after update offset, packetsize >= full %d" % offset)
 
 
@@ -113,15 +113,23 @@ def read_data():
     """
 
 def recv_acks():
-    global sock
+    global sock, HOST_PORT
 
     log('in recv_acks')
     ready, ignore1, ignore2 = select.select([sock], [], [], .1)
     for s in ready:
         log(str(s.recvfrom(1000)))
 
-def send_data():
-    pass
+def send_data(packets_to_send):
+    while len(packets_to_send) > 0 and data_to_be_acked < cwnd:
+        packet = packets_to_send[0]
+        if sock.sendto(packet.get_json(), HOST_PORT) < len(packet.size):
+            #sock.sendto(packet_to_send.get_json(), HOST_PORT)
+            log('sent packet successfully')
+            del packets_to_send[0]
+            data_to_be_acked.append(packet)
+        else:
+            log('packet send failed')
 
 def main():
 
@@ -131,8 +139,8 @@ def main():
     # sends data from enqueued
     # receive acks
     while True:
-        read_data()
-        #send_data()
+        packets_to_send = read_data()
+        send_data(packets_to_send)
         recv_acks()
 
 if __name__ == "__main__":
