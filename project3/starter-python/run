@@ -1,0 +1,176 @@
+#!/usr/bin/perl
+require "sys/syscall.ph";
+use IPC::Open2;
+use IPC::Open3;
+use threads;
+use threads::shared;
+use Time::HiRes qw(time);
+use Sys::Hostname;
+
+my $DEBUG = 0;
+my $LIVE = 0;
+my $DATA_SIZE = 1000;
+my $TIMEOUT = 30;
+
+if (! ((hostname() eq "cs3600tcp") || (hostname() eq "gordon.ccs.neu.edu"))) {
+  die("Error: This script can only be run on cs3600tcp");
+}
+
+if (! ((-e "3700send") && (-e "3700recv"))) {
+  die("Error: Could not find executables");
+}
+
+if (! ((-x "3700send") && (-x "3700recv"))) {
+  die("Error: Executables are not executable.  Fix with 'chmod u+x 3700send 3700recv'.");
+}
+
+for ($i=0; $i<=$#ARGV; $i++) {
+  if ($ARGV[$i] eq "--printlog") {
+    $DEBUG = 1;
+  } elsif ($ARGV[$i] eq "--live") {
+    $LIVE = 1;
+  } elsif ($ARGV[$i] eq "--size") {
+    if ($ARGV[$i+1] eq "small") {
+      $DATA_SIZE = 1000;
+    } elsif ($ARGV[$i+1] eq "medium") {
+      $DATA_SIZE = 10000;
+    } elsif ($ARGV[$i+1] eq "large") {
+      $DATA_SIZE = 100000;
+    } elsif ($ARGV[$i+1] eq "huge") {
+      $DATA_SIZE = 1000000;
+    } else {
+      die("Error: Unrecognized size '$ARGV[$i+1]'");
+    }
+    $i++;
+  } elsif ($ARGV[$i] eq "--timeout") {
+    if ($ARGV[$i+1] > 0) {
+      $TIMEOUT = $ARGV[$i+1];
+    }
+    $i++;
+  } else {
+    die("Error: Unrecognized option '$ARGV[$i]'");
+  }
+}
+
+if ($DEBUG && $LIVE) {
+  die("Error: --printlog and --live should not be used together; just use one of them");
+}
+
+my $port = 0;
+my $data_send = `cat /dev/urandom | xxd -p | head -c $DATA_SIZE`;
+my $data_recv :shared;
+my $log :shared;
+
+my ($bytes_start, $packets_start) = get_traffic();
+
+$recv = open3(\*RECV_IN, \*RECV_OUT, \*RECV_ERR, "/home/amislove/bin/doalarm $TIMEOUT ./3700recv");
+
+while(! $port) {
+  my $line = <RECV_ERR>;
+  if ($line =~ m|\[bound\] ([0-9]*)|) {
+    $port = $1;
+  }
+}
+
+$time_start = time;
+$send = open3(\*SEND_IN, \*SEND_OUT, \*SEND_ERR, "/home/amislove/bin/doalarm $TIMEOUT ./3700send 127.0.0.1:$port");
+
+$t_sd = threads->create('send_data');
+$t_so = threads->create('read_send_out');
+$t_ro = threads->create('read_recv_out');
+$t_se = threads->create('read_send_err');
+$t_re = threads->create('read_recv_err');
+
+waitpid($recv, 0);
+waitpid($send, 0);
+$t_sd->join();
+$t_so->join();
+$t_ro->join();
+$t_se->join();
+$t_re->join();
+$time_end = time;
+$time_dur = $time_end - $time_start;
+
+if ($DEBUG) {
+  open2(\*W, \*R, "sort -k2 -k3");
+  print R $log;
+  syscall(&SYS_close, fileno(R) + 0);
+  while(<W>) { print $_; }
+}
+
+my ($bytes_end, $packets_end) = get_traffic();
+
+print "Time elapsed: " . sprintf("%.3f ms\n", $time_dur*1000);
+print "Packets sent: " . ($packets_end - $packets_start) . "\n";
+print "Bytes sent: " . ($bytes_end - $bytes_start) . "\n";
+print "Effective goodput: " . sprintf("%.3f Kb/s", (8*($DATA_SIZE)/(1000 * ($time_dur)))) . "  (" . sprintf("%.3f KB/s", (($DATA_SIZE)/(1000 * ($time_dur)))) . ")\n";
+
+if ($data_send eq $data_recv) {
+  print "Data match: Yes\n";
+} else {
+  print "Data match: No\n";
+  print "WROTE:\n$data_send\nREAD:\n$data_recv\n";
+}
+
+sub send_data {
+  print SEND_IN $data_send;
+  syscall(&SYS_close, fileno(SEND_IN) + 0);
+  threads->exit();
+}
+
+sub read_send_out {
+  my $l = "";
+  while(<SEND_OUT>) {
+    $l .= "3700send: $_";
+    if ($LIVE) {
+      print "3700send: $_";
+    }
+  }
+  $log .= $l;
+  threads->exit();
+}
+
+sub read_recv_out {
+  my $recv = "";
+  while(<RECV_OUT>) {
+    $recv = $recv . $_;
+  }  
+  $data_recv = $recv;
+  threads->exit();
+}
+
+sub read_send_err {
+  my $l = "";
+  while(<SEND_ERR>) {
+    $l .= "3700send: $_";
+    if ($LIVE) {
+      print "3700send: $_";
+    }
+  }
+  $log .= $l;
+  threads->exit();
+}
+
+sub read_recv_err {
+  my $l = "";
+  while(<RECV_ERR>) {
+    $l .= "3700recv: $_";
+    if ($LIVE) {
+      print "3700recv: $_";
+    }
+  }  
+  $log .= $l;
+  threads->exit();
+}
+
+sub get_traffic {
+  my $output = `tc -s class show dev lo`;
+  my $uid = sprintf("%x", $<);
+  my @result = ();
+  if ($output =~ m/class htb 1:$uid [^\n]*\n *Sent ([0-9]*) bytes ([0-9]*) pkt/gi) {
+    $result[0] = $1;
+    $result[1] = $2;
+  }
+
+  return @result;
+}
