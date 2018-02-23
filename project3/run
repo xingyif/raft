@@ -63,7 +63,7 @@ my $log :shared;
 
 my ($bytes_start, $packets_start) = get_traffic();
 
-$recv = open3(\*RECV_IN, \*RECV_OUT, \*RECV_ERR, "/home/amislove/bin/doalarm $TIMEOUT ./3700recv 127.0.0.1");
+$recv = open3(\*RECV_IN, \*RECV_OUT, \*RECV_ERR, "/home/amislove/bin/doalarm $TIMEOUT ./3700recv");
 
 while(! $port) {
   my $line = <RECV_ERR>;
