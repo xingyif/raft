@@ -18,8 +18,11 @@ data_to_be_acked = []
 seq_number = 0
 
 IP_PORT = sys.argv[1]
+
 HOST = IP_PORT[0:IP_PORT.find(":")]
 PORT = int(IP_PORT[IP_PORT.find(":")+1:])
+#HOST = "127.0.0.1"
+#PORT = 2000
 HOST_PORT = (HOST, PORT)
 cwnd = 5
 
@@ -136,7 +139,6 @@ def send_data(packets_to_send):
             return False
 
 def main():
-    print("hello")
     # loop
     # reads data and enqueues
     # sends data from enqueued

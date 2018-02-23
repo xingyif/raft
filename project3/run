@@ -56,14 +56,14 @@ if ($DEBUG && $LIVE) {
   die("Error: --printlog and --live should not be used together; just use one of them");
 }
 
-my $port = 1; #TODO port = 0
+my $port = 0;
 my $data_send = `cat /dev/urandom | xxd -p | head -c $DATA_SIZE`;
 my $data_recv :shared;
 my $log :shared;
 
 my ($bytes_start, $packets_start) = get_traffic();
 
-$recv = open3(\*RECV_IN, \*RECV_OUT, \*RECV_ERR, "/home/amislove/bin/doalarm $TIMEOUT ./3700recv");
+$recv = open3(\*RECV_IN, \*RECV_OUT, \*RECV_ERR, "/home/amislove/bin/doalarm $TIMEOUT ./3700recv 127.0.0.1");
 
 while(! $port) {
   my $line = <RECV_ERR>;

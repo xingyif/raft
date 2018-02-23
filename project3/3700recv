@@ -10,6 +10,9 @@ import json
 MSG_SIZE = 1500
 TIMEOUT = 30
 
+def log(string):
+  sys.stderr.write(datetime.datetime.now().strftime("%H:%M:%S.%f") + " " + string + "\n")
+
 # Bind to localhost and an ephemeral port
 UDP_IP = "127.0.0.1"
 UDP_PORT = 0
@@ -21,11 +24,9 @@ sock.settimeout(TIMEOUT)
 
 # Get port we bound to
 UDP_PORT = sock.getsockname()[1]
-#log("[bound] " + str(UDP_PORT))
+log("[bound] " + str(UDP_PORT))
 
 
-def log(string):
-  sys.stderr.write(datetime.datetime.now().strftime("%H:%M:%S.%f") + " " + string + "\n")
 
 # Now listen for packets
 while True:
@@ -38,6 +39,7 @@ while True:
 
             # if at the end of the message
             if data_json['eof']:
+                print(data_json['data'])
                 log("[Mission Completed!]")
                 sys.exit(0)
 
