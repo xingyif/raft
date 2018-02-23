@@ -56,7 +56,7 @@ if ($DEBUG && $LIVE) {
   die("Error: --printlog and --live should not be used together; just use one of them");
 }
 
-my $port = 0;
+my $port = 1; #TODO port = 0
 my $data_send = `cat /dev/urandom | xxd -p | head -c $DATA_SIZE`;
 my $data_recv :shared;
 my $log :shared;

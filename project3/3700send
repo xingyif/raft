@@ -9,7 +9,8 @@ import select
 from packets import *
 
 # constant
-DATA_SIZE = 300
+DATA_SIZE = 1000
+TIMEOUT = 30
 
 # global
 data_to_send = []
@@ -20,17 +21,11 @@ IP_PORT = sys.argv[1]
 HOST = IP_PORT[0:IP_PORT.find(":")]
 PORT = int(IP_PORT[IP_PORT.find(":")+1:])
 HOST_PORT = (HOST, PORT)
-TIMEOUT = 30
 cwnd = 5
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.settimeout(TIMEOUT)
 
-"""
-    sends a packet to a designated connection
-    @param packet_to_send - SendPacket - the packet we're sending
-"""
-def send_packet(packet_to_send):
-    
 def log(string):
   sys.stderr.write(datetime.datetime.now().strftime("%H:%M:%S.%f") + " " + string + "\n")
 
@@ -105,34 +100,42 @@ def read_data():
 
     return packets_to_send
 
-    """
-    data = sys.stdin.read(DATA_SIZE)
-    if len(data) > 0:
-        # seq, if acked
-        sending_packet = SendingPacket(len(data), time.time() + TIMEOUT, LAST_SEQ + len(data), data, False)
-    """
 
+"""
+    Receives acknowledgments of packets from the receiver
+
+"""
 def recv_acks():
     global sock, HOST_PORT
 
-    log('in recv_acks')
+    print('in recv_acks')
     ready, ignore1, ignore2 = select.select([sock], [], [], .1)
     for s in ready:
+        print("there are something in %r" % ready)
         log(str(s.recvfrom(1000)))
 
+"""
+    Sends data to the receiver
+    @param the list of packets to send
+    @return true if successfully sent out data, false if error occured
+"""
 def send_data(packets_to_send):
-    while len(packets_to_send) > 0 and data_to_be_acked < cwnd:
+    global HOST_PORT, cwnd, data_to_be_acked
+
+    while (len(packets_to_send) > 0) and (len(data_to_be_acked) < cwnd):
+        print("in send_data, len(packets to send) %d len(data_tobeacked) %d " % (len(packets_to_send), len(data_to_be_acked)))
         packet = packets_to_send[0]
-        if sock.sendto(packet.get_json(), HOST_PORT) < len(packet.size):
-            #sock.sendto(packet_to_send.get_json(), HOST_PORT)
-            log('sent packet successfully')
+        print("data %s" % packet.get_json())
+        bytes_sent = sock.sendto(packet.get_json(), HOST_PORT) # TODO why port 0 throws invalid argument err ('127.0.0.1', 1)
+        if (bytes_sent >= packet.size):
+            log('[SUCCESS] sent packet successfully!')
             del packets_to_send[0]
             data_to_be_acked.append(packet)
         else:
-            log('packet send failed')
+            log('[ERROR] packet send failed!')
+            return False
 
 def main():
-
     print("hello")
     # loop
     # reads data and enqueues
@@ -140,7 +143,9 @@ def main():
     # receive acks
     while True:
         packets_to_send = read_data()
-        send_data(packets_to_send)
+        if (not send_data(packets_to_send)):
+            print("finished sending packets")
+            break
         recv_acks()
 
 if __name__ == "__main__":
