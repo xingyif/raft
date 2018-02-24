@@ -30,17 +30,18 @@ log("[bound] " + str(UDP_PORT))
 
 buffered_packets = []
 
-def sack(ack_packet):
-    sock.sendto(json.dumps(ack_packet.as_json()), (UDP_IP, UDP_PORT))
 
 def receive_enqueue_ack():
+    global buffered_packets
     result = sock.recvfrom(MSG_SIZE)
     if result:
         (data, addr) = result
 
         try:
             data_json = json.loads(data)
-
+            ack = AckPacket(data_json['seq_num'])
+            sock.sendto(json.dumps(ack.as_json()), (UDP_IP, UDP_PORT))
+            log('sent ack')
             # if at the end of the message
             if data_json['eof']:
                 sys.stdout.write(data_json['data'])
@@ -50,16 +51,24 @@ def receive_enqueue_ack():
             if data_json['data']:
                 log("[recv data] " + str(data_json['seq_num']) + " (" + str(len(data_json['data'])) + ") ACCEPTED (in-order)")
                 buffered_packets.append(data_json)
-                ack = AckPacket(data_json['seq_num'])
-                sack(ack)
                 
                 #sys.stdout.write(data_json['data'])
         except (ValueError, KeyError, TypeError) as e:
             print("received corrupted packet")
+            print(data_json)
             raise e
 
 def process():
-        
+    global seq
+    acted = True
+    while acted:
+        acted = False
+        for packet in list(buffered_packets):
+            if packet['seq_num'] == seq:
+                seq += packet['size']
+                acted = True
+                sys.stdout.write(packet['data'])
+                buffered_packets.remove(packet)
 
 # Now listen for packets
 while True:
