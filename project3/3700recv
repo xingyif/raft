@@ -6,9 +6,11 @@ import time
 import datetime
 import select
 import json
+from packets import *
 
 MSG_SIZE = 1500
 TIMEOUT = 30
+seq = 0
 
 def log(string):
   sys.stderr.write(datetime.datetime.now().strftime("%H:%M:%S.%f") + " " + string + "\n")
@@ -26,10 +28,12 @@ sock.settimeout(TIMEOUT)
 UDP_PORT = sock.getsockname()[1]
 log("[bound] " + str(UDP_PORT))
 
+buffered_packets = []
 
+def sack(ack_packet):
+    sock.sendto(json.dumps(ack_packet.as_json()), (UDP_IP, UDP_PORT))
 
-# Now listen for packets
-while True:
+def receive_enqueue_ack():
     result = sock.recvfrom(MSG_SIZE)
     if result:
         (data, addr) = result
@@ -39,18 +43,34 @@ while True:
 
             # if at the end of the message
             if data_json['eof']:
-                print(data_json['data'])
+                sys.stdout.write(data_json['data'])
                 log("[Mission Completed!]")
                 sys.exit(0)
 
             if data_json['data']:
                 log("[recv data] " + str(data_json['seq_num']) + " (" + str(len(data_json['data'])) + ") ACCEPTED (in-order)")
-                sys.stdout.write(data_json['data'])
-                log("in 3700recv %s" % data_json)
+                buffered_packets.append(data_json)
+                ack = AckPacket(data_json['seq_num'])
+                sack(ack)
+                
+                #sys.stdout.write(data_json['data'])
         except (ValueError, KeyError, TypeError) as e:
             print("received corrupted packet")
             raise e
+
+def process():
+        
+
+# Now listen for packets
+while True:
+#TODO: send ack, organize by seq #
+# receive/enqueue data
+# process data/send ack
+    receive_enqueue_ack()
+    process()
+
+"""
     else:
         log("[ERROR] socket timed out after %d seconds!" % TIMEOUT)
         sys.exit(-1)
-
+"""
