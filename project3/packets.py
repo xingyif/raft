@@ -1,4 +1,5 @@
 import json
+import time
 
 class SendPacket:
 
@@ -39,7 +40,13 @@ class SendPacket:
     def is_acked(self):
     		return self.ack
 
-
+    """
+    sets this packets timeout to now + a timeout window
+    @param expiry - Int - when this packet should expire
+    """
+    def set_timeout(self, expiry):
+        self.timeout = expiry
+    
 class AckPacket:
 
     def __init__(self, ack_num):

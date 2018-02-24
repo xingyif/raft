@@ -10,10 +10,10 @@ from packets import *
 
 # constant
 DATA_SIZE = 1000
-TIMEOUT = 30
+TIMEOUT = 10
+PACKET_TIMEOUT = 4
 
 # global
-data_to_send = []
 data_to_be_acked = []
 seq_number = 0
 
@@ -24,11 +24,13 @@ PORT = int(IP_PORT[IP_PORT.find(":")+1:])
 #HOST = "127.0.0.1"
 #PORT = 2000
 HOST_PORT = (HOST, PORT)
-cwnd = 5
+cwnd = 100
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.settimeout(TIMEOUT)
-
+sock.bind((HOST, PORT+1))
+#ack_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+#ack_sock.bind((HOST, PORT+1))
 def log(string):
   sys.stderr.write(datetime.datetime.now().strftime("%H:%M:%S.%f") + " " + string + "\n")
 
@@ -44,24 +46,19 @@ def construct_packet(data, offset):
         # extract DATA_SIZE bytes of data
         result = data[offset:offset + DATA_SIZE]
         # construct a sendPacket(seq_num, data, size, timeout, ack, iseof)
-        packet = SendPacket(offset, result, len(result), TIMEOUT + time.time(), False, False)
+        packet = SendPacket(offset, result, len(result), PACKET_TIMEOUT + time.time(), False, False)
         # update offset
         offset += DATA_SIZE
-        print("after update offset, packetsize < full %d" % offset)
     # less than DATA_SIZE bytes left
     else:
         # extract the rest of the data
         result = data[offset:]
         # construct a sendPacket(seq_num, data, size, timeout, ack, iseof)
-        packet = SendPacket(offset, result, len(result), TIMEOUT + time.time(), False, True)
+        packet = SendPacket(offset, result, len(result), PACKET_TIMEOUT + time.time(), False, True)
         # update the offset
         offset += len(result)
-        print("after update offset, packetsize >= full %d" % offset)
 
 
-    log("extracting data for one packet: %s" % result)
-    log("new offset (should be updated, about to return): %d" % offset)
-    log("constructed a packet %s" % packet.get_json())
     return packet, offset
 
 """
@@ -74,12 +71,10 @@ def construct_packet(data, offset):
 def construct_packets_from_data(data, offset):
     packets = []
     while offset < len(data):
-        print("at the beginning of while loop, offset %d" % offset)
         # construct packet w/ 1500 or fewer bytes
         # increment index by how big the packet is
         # repeat
         new_packet, offset = construct_packet(data, offset)
-        print("in while loop, offset(should be updated) %d" % offset)
         packets.append(new_packet)
 
     return packets
@@ -110,12 +105,15 @@ def read_data():
 """
 def recv_acks():
     global sock, HOST_PORT
-
-    print('in recv_acks')
     ready, ignore1, ignore2 = select.select([sock], [], [], .1)
     for s in ready:
-        print("there are something in %r" % ready)
-        log(str(s.recvfrom(1000)))
+        msg, addr = s.recvfrom(1000)
+        ack = json.loads(msg)
+        for packet in list(data_to_be_acked):
+            if packet.get_seq_num() == ack['seq_num']:
+                data_to_be_acked.remove(packet)
+                log("removed packet with seq %d" % packet.get_seq_num())   
+        
 
 """
     Sends data to the receiver
@@ -124,31 +122,48 @@ def recv_acks():
 """
 def send_data(packets_to_send):
     global HOST_PORT, cwnd, data_to_be_acked
-
     while (len(packets_to_send) > 0) and (len(data_to_be_acked) < cwnd):
-        print("in send_data, len(packets to send) %d len(data_tobeacked) %d " % (len(packets_to_send), len(data_to_be_acked)))
         packet = packets_to_send[0]
-        print("data %s" % packet.get_json())
-        bytes_sent = sock.sendto(packet.get_json(), HOST_PORT) # TODO why port 0 throws invalid argument err ('127.0.0.1', 1)
+        bytes_sent = sock.sendto(packet.get_json(), HOST_PORT)
         if (bytes_sent >= packet.size):
             log('[SUCCESS] sent packet successfully!')
             del packets_to_send[0]
             data_to_be_acked.append(packet)
         else:
             log('[ERROR] packet send failed!')
-            return False
+    
+    return packets_to_send
+
+def check_timeouts(packets_to_send):
+    global data_to_be_acked
+    result = []
+    for packet in list(data_to_be_acked):
+        if packet.is_timed_out():
+            log('found a tod packet')
+            log("before" + str(len(data_to_be_acked)))
+            data_to_be_acked.remove(packet)
+            log("after" + str(len(data_to_be_acked)))
+            packet.set_timeout(time.time() + PACKET_TIMEOUT)
+            result.append(packet)
+            #TODO change cwnd once tba data times out
+    
+    #for packet in packets_to_send:
+     #   packet.set_timeout(time.time() + PACKET_TIMEOUT)
+
+    return result
+
 
 def main():
-    # loop
-    # reads data and enqueues
-    # sends data from enqueued
-    # receive acks
+    start = time.time()
+    packets_to_send = []
     while True:
-        packets_to_send = read_data()
-        if (not send_data(packets_to_send)):
-            print("finished sending packets")
+        packets_to_send.extend(read_data())
+        packets_to_send = send_data(packets_to_send)
+        recv_acks() #TODO change cwnd size
+        packets_to_send.extend(check_timeouts(packets_to_send))
+        #if len(packets_to_send) == 0 and len(data_to_be_acked) == 0:
+        if time.time() > start + 10:
             break
-        recv_acks()
 
 if __name__ == "__main__":
     main()

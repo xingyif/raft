@@ -9,7 +9,7 @@ import json
 from packets import *
 
 MSG_SIZE = 1500
-TIMEOUT = 30
+TIMEOUT = 10
 seq = 0
 
 def log(string):
@@ -40,7 +40,7 @@ def receive_enqueue_ack():
         try:
             data_json = json.loads(data)
             ack = AckPacket(data_json['seq_num'])
-            sock.sendto(json.dumps(ack.as_json()), (UDP_IP, UDP_PORT))
+            log(str(sock.sendto(json.dumps(ack.as_json()), (UDP_IP, UDP_PORT+1))))
             log('sent ack')
             # if at the end of the message
             if data_json['eof']:
@@ -68,6 +68,8 @@ def process():
                 seq += packet['size']
                 acted = True
                 sys.stdout.write(packet['data'])
+                buffered_packets.remove(packet)
+            elif packet['seq_num'] < seq:
                 buffered_packets.remove(packet)
 
 # Now listen for packets
