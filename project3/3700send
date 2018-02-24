@@ -21,8 +21,6 @@ IP_PORT = sys.argv[1]
 
 HOST = IP_PORT[0:IP_PORT.find(":")]
 PORT = int(IP_PORT[IP_PORT.find(":")+1:])
-#HOST = "127.0.0.1"
-#PORT = 2000
 HOST_PORT = (HOST, PORT)
 cwnd = 100
 
@@ -161,8 +159,8 @@ def main():
         packets_to_send = send_data(packets_to_send)
         recv_acks() #TODO change cwnd size
         packets_to_send.extend(check_timeouts(packets_to_send))
-        #if len(packets_to_send) == 0 and len(data_to_be_acked) == 0:
-        if time.time() > start + 10:
+        if len(packets_to_send) == 0 and len(data_to_be_acked) == 0:
+        #if time.time() > start + 10:
             break
 
 if __name__ == "__main__":

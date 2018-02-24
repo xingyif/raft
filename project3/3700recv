@@ -47,6 +47,7 @@ def receive_enqueue_ack():
                 sys.stdout.write(data_json['data'])
                 log("[Mission Completed!]")
                 sys.exit(0)
+                #return
 
             if data_json['data']:
                 log("[recv data] " + str(data_json['seq_num']) + " (" + str(len(data_json['data'])) + ") ACCEPTED (in-order)")
