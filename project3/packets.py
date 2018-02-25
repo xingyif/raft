@@ -38,7 +38,7 @@ class SendPacket:
     @return boolean
     """
     def is_acked(self):
-    		return self.ack
+        return self.ack
 
     """
     sets this packets timeout to now + a timeout window
@@ -46,6 +46,13 @@ class SendPacket:
     """
     def set_timeout(self, expiry):
         self.timeout = expiry
+
+    """
+    Sets the packet to be acknowledged when received an ACK from the receiver
+    """
+    def set_acked(self):
+        self.ack = True
+
     
 class AckPacket:
 
