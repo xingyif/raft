@@ -9,7 +9,7 @@ import json
 from packets import *
 
 MSG_SIZE = 1500
-TIMEOUT = 10
+TIMEOUT = 30
 seq = 0
 eof = False
 max_seq = -1
@@ -32,6 +32,14 @@ log("[bound] " + str(UDP_PORT))
 
 buffered_packets = []
 
+def get_status(data_json):
+    recv_seq = data_json['seq_num']
+    if recv_seq == seq:
+        return 'ACCEPTED (in-order)'
+    elif recv_seq > seq:
+        return 'ACCEPTED (out-of-order)'
+    elif recv_seq < seq:
+        return 'IGNORED'
 
 def receive_enqueue_ack():
     global buffered_packets, eof, max_seq
@@ -43,23 +51,24 @@ def receive_enqueue_ack():
             data_json = json.loads(data)
             ack = AckPacket(data_json['seq_num'])
             sock.sendto(json.dumps(ack.as_json()), (UDP_IP, UDP_PORT+1))
-            log('send ack about seq: %d' % data_json['seq_num'])
             # if at the end of the message
             if data_json['eof']:
-                log("[recv data] " + str(data_json['seq_num']) + " (" + str(len(data_json['data'])))
+                status = get_status(data_json)
+                log('[recv data] %d (%d) %s' % (data_json['seq_num'], data_json['size'], status))
                 eof = True
                 max_seq = data_json['seq_num'] + data_json['size']
                 buffered_packets.append(data_json)
                 return
                 #sys.exit(0)
             if data_json['data']:
-                log("[recv data] " + str(data_json['seq_num']) + " (" + str(len(data_json['data'])))
+                status = get_status(data_json)
+                log('[recv data] %d (%d) %s' % (data_json['seq_num'], data_json['size'], status))
                 buffered_packets.append(data_json)
                 
                 #sys.stdout.write(data_json['data'])
         except (ValueError, KeyError, TypeError) as e:
-            print("received corrupted packet")
-            print(data_json)
+            log('[recv corrupt packet]')
+            print data_json
             raise e
 
 def process():
@@ -69,7 +78,7 @@ def process():
         acted = False
         for packet in list(buffered_packets):
             if packet['seq_num'] == seq:
-                log('read packet %d, waiting for packet %d' % (packet['seq_num'], seq + packet['size']))
+                #log('read packet %d, waiting for packet %d' % (packet['seq_num'], seq + packet['size']))
                 seq += packet['size']
                 acted = True
                 sys.stdout.write(packet['data'])
@@ -85,8 +94,9 @@ while True:
     receive_enqueue_ack()
     process()
     if len(buffered_packets) == 0 and eof and max_seq == seq:
-        log('MISSION SUCCESS')
+        log('[completed]')
         break
+        
 """
     else:
         log("[ERROR] socket timed out after %d seconds!" % TIMEOUT)
