@@ -1,1 +1,63 @@
-README
+**** High-level Approach:
+
+*The program is able to transfer a file with any number of packets dropped, damaged, duplicated, and delayed, and under a variety of different available bandwidths and link latencies.
+
+
+*For packets.py:
+    This file contains the main data structure for the data packets.
+    The 2 classes are SendingPacket and AckPakcet.
+    SendPacket contains all the information needed for a data packet, inlcuding sequence number, actual data, size of data, timeout time, is the packet acked, and is this packet contains the data at the end of the file.
+
+    SendPacket contains a few getter and setter functions, and get_json
+
+    AckPacket conatins the ack_num, which is the sequence number of the packet that it acknowledges
+
+    
+    AckPacket contains a getter for ack_num and as_json
+
+*For 3700send:
+    We separated the program into several parts for sending data packets to the receiver.
+    0. Read in data and separate data into packets that are 1000bytes large:
+        constructs dataPackets and return a list of packets to send
+
+    1. Send data packets to the receiver:
+        sends data to the receiver and record if each packet is successfully sent through, if not, retry later
+
+    2. Recevie ACKs from the receiver:
+        actively receives ACKs from the receiver, and update the largest, consecutive sequence number that the sender has received(the acked packet), updates the list of packets that are waiting to be acknowledged. Raises error if received corrupted data.
+
+    3. Detect dropped packets (exceeds packet timeout limit):
+        iterates through the list of packets that are waiting to be ACKed, and checks if any of the packets are timed out/dropped. Resend the packet if it has been dropped.
+
+    4. Adjust congestion window size based on the CUBIC function:
+        adjusts the cwnd size using the CUBIC function:
+        W(t) = C(t - K)^3 + Wmax
+        k = cubRoot of (Wmax * B) / C
+        B is the constant fraction for multiplicative increase
+        t is the time since last packet was dropped
+        Wmax is the cwnd size when last packet was dropped
+        C is the scaling contant    
+    5. Exit the program gracefully when finished sending all packets successfully:
+        the program should exit when finished sneding all the packets, and all the sendPackets are acknowledged, or if the packets are all sent through and the last ACK from the receiver did not successfully get received (was dropped).
+
+
+*For 3700recv:
+
+
+
+
+
+
+****** Challenges Faced:
+The challenges faced when implementing this program was ensuring the data integrity when sending large data in a high latency, high duplicate rate, high dropped rate, high reordered rate, high delay date, and low bandwidth network. To ensure the data packets are inorder, we kept track of the largest consecutive sequence number received in the receiver. At the same time, our send program keeps track of the packets that have not been acknowledged, and it resends the packet if it has been dropped (timeout).
+
+Finding the accurate constants for the CUBIC function was also trickey. We learned about the constants and timeout times by testing and recording the real time of sending and receiving packets by running the tests hundreds and thousands of times. We record/update the round trip time by recording the time of a three-way handshake.
+
+
+****** Testing Approach:
+
+Testing the accuracy of the programs includes sending different sized files (small/medium/large/huge) on an "unreliable" network (different bandwidth and link latencies) with dropped, reordered, damaged, duplicated, and delayed packets.
+
+Testing the performance of the programs includes recording the RRT, data packets overhead, and overall time of sending different sized packets.
+
+The ./test perl script, the ./run perl script, and emulating network conditions are all utilized during testing. Print statements and log to stderr are used for debugging purposes.
