@@ -38,9 +38,20 @@ sock.settimeout(TIMEOUT)
 sock.bind((HOST, PORT+1))
 #ack_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 #ack_sock.bind((HOST, PORT+1))
+
+
+
+"""
+    Logs the message to stderr
+    @param the message to be logged
+"""
 def log(string):
   sys.stderr.write(datetime.datetime.now().strftime("%H:%M:%S.%f") + " " + string + "\n")
 
+
+"""
+    Sets/Updates the congestion window size based on the CUBIC function
+"""
 def set_cwnd():
     global time_of_last_packet_drop, prev_cwnd_max, SCALE, SCAL_FRAC, cwnd
     K = (prev_cwnd_max * SCAL_FRAC / SCALE) ** (1. / 3)
@@ -49,6 +60,7 @@ def set_cwnd():
     cwnd = max(math.floor(new_window), INIT_CWND)
     #log('k is %d, time diff is %d, prev max is %d' % (K, t, prev_cwnd_max))
     #log('set cwnd to %d' % cwnd)
+
 
 """
     constructs a single packet based on the given data and offset
@@ -117,7 +129,6 @@ def read_data():
 
 """
     Receives acknowledgments of packets from the receiver
-
 """
 def recv_acks():
     global sock, HOST_PORT, time_of_last_ack
@@ -160,6 +171,12 @@ def send_data(packets_to_send):
     
     return packets_to_send
 
+
+"""
+    Checks if any packets are dropped when sending through (reached timeout before receiving an ACK). If a packet is timedout, then resend the packet.
+    @param list of packets to be sent
+    @return the updated list of packets to be sent (size should be the same or larger))
+"""
 def check_timeouts(packets_to_send):
     global data_to_be_acked, time_of_last_packet_drop, cwnd, prev_cwnd_max
     result = []
@@ -173,7 +190,9 @@ def check_timeouts(packets_to_send):
             result.append(packet)
     return result
 
-
+"""
+    The sender, executes the program
+"""
 def main():
     global time_of_last_ack
     time_of_last_ack = time.time()

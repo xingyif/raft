@@ -14,6 +14,12 @@ seq = 0
 eof = False
 max_seq = -1
 
+
+
+"""
+    Logs the message to stderr
+    @param the message to be logged
+"""
 def log(string):
   sys.stderr.write(datetime.datetime.now().strftime("%H:%M:%S.%f") + " " + string + "\n")
 
@@ -32,6 +38,11 @@ log("[bound] " + str(UDP_PORT))
 
 buffered_packets = []
 
+
+"""
+    Gets the status of the received message, whether it is accepted(inorder/outoforder) or IGNORED(duplicate)
+    @param the data received in JSON format
+"""
 def get_status(data_json):
     recv_seq = data_json['seq_num']
     if recv_seq == seq:
@@ -41,6 +52,12 @@ def get_status(data_json):
     elif recv_seq < seq:
         return 'IGNORED'
 
+
+"""
+    Listens to the socket and receives packets from the socket.
+    Identifies if the packet is the last packet of the file or not,
+    Buffers the received packet if it is out-or-order.
+"""
 def receive_enqueue_ack():
     global buffered_packets, eof, max_seq
     result = sock.recvfrom(MSG_SIZE)
@@ -60,6 +77,7 @@ def receive_enqueue_ack():
                 buffered_packets.append(data_json)
                 return
                 #sys.exit(0)
+            # if not at the end of the message
             if data_json['data']:
                 status = get_status(data_json)
                 log('[recv data] %d (%d) %s' % (data_json['seq_num'], data_json['size'], status))
@@ -71,28 +89,34 @@ def receive_enqueue_ack():
             print data_json
             raise e
 
+
+"""
+    Iterated through the list of buffered packets and determines if each packet is in-order or out-or-order
+"""
 def process():
     global seq
     acted = True
     while acted:
         acted = False
         for packet in list(buffered_packets):
+            # if the packet is what we expected, in-order, then process it
             if packet['seq_num'] == seq:
                 #log('read packet %d, waiting for packet %d' % (packet['seq_num'], seq + packet['size']))
                 seq += packet['size']
                 acted = True
                 sys.stdout.write(packet['data'])
                 buffered_packets.remove(packet)
+            # if the packet is duplicate, then drop it
             elif packet['seq_num'] < seq:
                 buffered_packets.remove(packet)
 
-# Now listen for packets
+# Now listening for packets
 while True:
-#TODO: send ack, organize by seq #
-# receive/enqueue data
-# process data/send ack
+    # receive/enqueue data
     receive_enqueue_ack()
+    # process data/send ack
     process()
+    # gracefully exit the program is the entire file is transmitted
     if len(buffered_packets) == 0 and eof and max_seq == seq:
         log('[completed]')
         break
