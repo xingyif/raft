@@ -11,7 +11,7 @@ from packets import *
 # constant
 DATA_SIZE = 1000
 TIMEOUT = 10
-PACKET_TIMEOUT = 4
+PACKET_TIMEOUT = 1
 
 # global
 data_to_be_acked = []
@@ -137,16 +137,14 @@ def check_timeouts(packets_to_send):
     result = []
     for packet in list(data_to_be_acked):
         if packet.is_timed_out():
-            log('found a tod packet')
-            log("before" + str(len(data_to_be_acked)))
+            log('packet %d timed out, resending' % packet.get_seq_num())
             data_to_be_acked.remove(packet)
-            log("after" + str(len(data_to_be_acked)))
             packet.set_timeout(time.time() + PACKET_TIMEOUT)
             result.append(packet)
             #TODO change cwnd once tba data times out
     
-    #for packet in packets_to_send:
-     #   packet.set_timeout(time.time() + PACKET_TIMEOUT)
+    for packet in packets_to_send:
+        packet.set_timeout(time.time() + PACKET_TIMEOUT)
 
     return result
 

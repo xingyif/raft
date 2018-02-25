@@ -11,6 +11,8 @@ from packets import *
 MSG_SIZE = 1500
 TIMEOUT = 10
 seq = 0
+eof = False
+max_recv = -1
 
 def log(string):
   sys.stderr.write(datetime.datetime.now().strftime("%H:%M:%S.%f") + " " + string + "\n")
@@ -32,7 +34,7 @@ buffered_packets = []
 
 
 def receive_enqueue_ack():
-    global buffered_packets
+    global buffered_packets, eof, max_seq
     result = sock.recvfrom(MSG_SIZE)
     if result:
         (data, addr) = result
@@ -40,17 +42,18 @@ def receive_enqueue_ack():
         try:
             data_json = json.loads(data)
             ack = AckPacket(data_json['seq_num'])
-            log(str(sock.sendto(json.dumps(ack.as_json()), (UDP_IP, UDP_PORT+1))))
-            log('sent ack')
+            sock.sendto(json.dumps(ack.as_json()), (UDP_IP, UDP_PORT+1))
+            log('send ack about seq: %d' % data_json['seq_num'])
             # if at the end of the message
             if data_json['eof']:
-                sys.stdout.write(data_json['data'])
-                log("[Mission Completed!]")
-                sys.exit(0)
-                #return
-
+                log("[recv data] " + str(data_json['seq_num']) + " (" + str(len(data_json['data'])))
+                eof = True
+                max_seq = data_json['seq_num'] + data_json['size']
+                buffered_packets.append(data_json)
+                return
+                #sys.exit(0)
             if data_json['data']:
-                log("[recv data] " + str(data_json['seq_num']) + " (" + str(len(data_json['data'])) + ") ACCEPTED (in-order)")
+                log("[recv data] " + str(data_json['seq_num']) + " (" + str(len(data_json['data'])))
                 buffered_packets.append(data_json)
                 
                 #sys.stdout.write(data_json['data'])
@@ -66,6 +69,7 @@ def process():
         acted = False
         for packet in list(buffered_packets):
             if packet['seq_num'] == seq:
+                log('read packet %d, waiting for packet %d' % (packet['seq_num'], seq + packet['size']))
                 seq += packet['size']
                 acted = True
                 sys.stdout.write(packet['data'])
@@ -80,7 +84,9 @@ while True:
 # process data/send ack
     receive_enqueue_ack()
     process()
-
+    if len(buffered_packets) == 0 and eof and max_seq == seq:
+        log('MISSION SUCCESS')
+        break
 """
     else:
         log("[ERROR] socket timed out after %d seconds!" % TIMEOUT)
