@@ -23,7 +23,7 @@ IP_PORT = sys.argv[1]
 HOST = IP_PORT[0:IP_PORT.find(":")]
 PORT = int(IP_PORT[IP_PORT.find(":")+1:])
 HOST_PORT = (HOST, PORT)
-cwnd = 100
+cwnd = 1000
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.settimeout(TIMEOUT)
@@ -107,22 +107,32 @@ def recv_acks():
     ready, ignore1, ignore2 = select.select([sock], [], [], .1)
     for s in ready:
         msg, addr = s.recvfrom(1000)
-        ack = json.loads(msg)
-        for packet in list(data_to_be_acked):
-            if packet.get_seq_num() == ack['seq_num']:
-                data_to_be_acked.remove(packet)
-                log("removed packet with seq %d" % packet.get_seq_num())   
-                time_of_last_ack = time.time()
+        try:
+            ack = json.loads(msg)
+            for packet in list(data_to_be_acked):
+                if packet.get_seq_num() == ack['seq_num']:
+                    packet.set_acked()
+                    data_to_be_acked.remove(packet)
+                    log("removed packet with seq %d" % packet.get_seq_num()) 
+                    time_of_last_ack = time.time()
+        except (ValueError, KeyError, TypeError) as e:
+            print("recevied corrupted ACK")
+            print(ack)
+            raise e
+
 
 """
     Sends data to the receiver
     @param the list of packets to send
-    @return true if successfully sent out data, false if error occured
+    @return the updated list of tobesent data packets, which contains the packets
+    that the program did not successfully send through
 """
 def send_data(packets_to_send):
     global HOST_PORT, cwnd, data_to_be_acked
     while (len(packets_to_send) > 0) and (len(data_to_be_acked) < cwnd):
         packet = packets_to_send[0]
+        # update new timeout time for the packet when send
+        packet.set_timeout(PACKET_TIMEOUT + time.time())
         bytes_sent = sock.sendto(packet.get_json(), HOST_PORT)
         if (bytes_sent >= packet.size):
             log('[SUCCESS] sent packet successfully!')
@@ -142,11 +152,6 @@ def check_timeouts(packets_to_send):
             data_to_be_acked.remove(packet)
             packet.set_timeout(time.time() + PACKET_TIMEOUT)
             result.append(packet)
-            #TODO change cwnd once tba data times out
-    
-    for packet in packets_to_send:
-        packet.set_timeout(time.time() + PACKET_TIMEOUT)
-
     return result
 
 
@@ -158,10 +163,12 @@ def main():
     while True:
         packets_to_send.extend(read_data())
         packets_to_send = send_data(packets_to_send)
-        recv_acks() #TODO change cwnd size
+        recv_acks()
         packets_to_send.extend(check_timeouts(packets_to_send))
         #if len(packets_to_send) == 0 and len(data_to_be_acked) == 0:
+
         if time.time() > time_of_last_ack + 2 or (len(packets_to_send) == 0 and len(data_to_be_acked) == 0):
+        #if time.time() > start + 5:
             break
 
 if __name__ == "__main__":
