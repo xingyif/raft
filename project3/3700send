@@ -11,11 +11,12 @@ from packets import *
 # constant
 DATA_SIZE = 1000
 TIMEOUT = 10
-PACKET_TIMEOUT = 4
+PACKET_TIMEOUT = 1
 
 # global
 data_to_be_acked = []
 seq_number = 0
+time_of_last_ack = 0;
 
 IP_PORT = sys.argv[1]
 
@@ -102,7 +103,7 @@ def read_data():
 
 """
 def recv_acks():
-    global sock, HOST_PORT
+    global sock, HOST_PORT, time_of_last_ack
     ready, ignore1, ignore2 = select.select([sock], [], [], .1)
     for s in ready:
         msg, addr = s.recvfrom(1000)
@@ -113,11 +114,12 @@ def recv_acks():
                     packet.set_acked()
                     data_to_be_acked.remove(packet)
                     log("removed packet with seq %d" % packet.get_seq_num()) 
+                    time_of_last_ack = time.time()
         except (ValueError, KeyError, TypeError) as e:
             print("recevied corrupted ACK")
             print(ack)
             raise e
-        
+
 
 """
     Sends data to the receiver
@@ -146,17 +148,16 @@ def check_timeouts(packets_to_send):
     result = []
     for packet in list(data_to_be_acked):
         if packet.is_timed_out():
-            log('found a tod packet')
-            log("before" + str(len(data_to_be_acked)))
+            log('packet %d timed out, resending' % packet.get_seq_num())
             data_to_be_acked.remove(packet)
-            log("after" + str(len(data_to_be_acked)))
             packet.set_timeout(time.time() + PACKET_TIMEOUT)
             result.append(packet)
-            #TODO re-enter slow start, change cwnd once tba data times out    
     return result
 
 
 def main():
+    global time_of_last_ack
+    time_of_last_ack = time.time()
     start = time.time()
     packets_to_send = []
     while True:
@@ -165,7 +166,9 @@ def main():
         recv_acks()
         packets_to_send.extend(check_timeouts(packets_to_send))
         #if len(packets_to_send) == 0 and len(data_to_be_acked) == 0:
-        if time.time() > start + 5:
+
+        if time.time() > time_of_last_ack + 2 or (len(packets_to_send) == 0 and len(data_to_be_acked) == 0):
+        #if time.time() > start + 5:
             break
 
 if __name__ == "__main__":
