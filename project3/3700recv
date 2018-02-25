@@ -91,7 +91,7 @@ def receive_enqueue_ack():
 
 
 """
-    Iterated through the list of buffered packets and determines if each packet is in-order or out-or-order
+    Iterates through the list of buffered packets and determines if each packet is in-order or out-or-order
 """
 def process():
     global seq
