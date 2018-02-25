@@ -12,7 +12,7 @@ MSG_SIZE = 1500
 TIMEOUT = 10
 seq = 0
 eof = False
-max_recv = -1
+max_seq = -1
 
 def log(string):
   sys.stderr.write(datetime.datetime.now().strftime("%H:%M:%S.%f") + " " + string + "\n")

@@ -16,6 +16,7 @@ PACKET_TIMEOUT = 1
 # global
 data_to_be_acked = []
 seq_number = 0
+time_of_last_ack = 0;
 
 IP_PORT = sys.argv[1]
 
@@ -102,7 +103,7 @@ def read_data():
 
 """
 def recv_acks():
-    global sock, HOST_PORT
+    global sock, HOST_PORT, time_of_last_ack
     ready, ignore1, ignore2 = select.select([sock], [], [], .1)
     for s in ready:
         msg, addr = s.recvfrom(1000)
@@ -111,7 +112,7 @@ def recv_acks():
             if packet.get_seq_num() == ack['seq_num']:
                 data_to_be_acked.remove(packet)
                 log("removed packet with seq %d" % packet.get_seq_num())   
-        
+                time_of_last_ack = time.time()
 
 """
     Sends data to the receiver
@@ -150,6 +151,8 @@ def check_timeouts(packets_to_send):
 
 
 def main():
+    global time_of_last_ack
+    time_of_last_ack = time.time()
     start = time.time()
     packets_to_send = []
     while True:
@@ -157,8 +160,8 @@ def main():
         packets_to_send = send_data(packets_to_send)
         recv_acks() #TODO change cwnd size
         packets_to_send.extend(check_timeouts(packets_to_send))
-        if len(packets_to_send) == 0 and len(data_to_be_acked) == 0:
-        #if time.time() > start + 10:
+        #if len(packets_to_send) == 0 and len(data_to_be_acked) == 0:
+        if time.time() > time_of_last_ack + 2 or (len(packets_to_send) == 0 and len(data_to_be_acked) == 0):
             break
 
 if __name__ == "__main__":
