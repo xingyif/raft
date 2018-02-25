@@ -122,7 +122,8 @@ def recv_acks():
 """
     Sends data to the receiver
     @param the list of packets to send
-    @return true if successfully sent out data, false if error occured
+    @return the updated list of tobesent data packets, which contains the packets
+    that the program did not successfully send through
 """
 def send_data(packets_to_send):
     global HOST_PORT, cwnd, data_to_be_acked
@@ -151,11 +152,7 @@ def check_timeouts(packets_to_send):
             log("after" + str(len(data_to_be_acked)))
             packet.set_timeout(time.time() + PACKET_TIMEOUT)
             result.append(packet)
-            #TODO re-enter slow start, change cwnd once tba data times out
-    
-    #for packet in packets_to_send:
-     #   packet.set_timeout(time.time() + PACKET_TIMEOUT)
-
+            #TODO re-enter slow start, change cwnd once tba data times out    
     return result
 
 
@@ -165,7 +162,7 @@ def main():
     while True:
         packets_to_send.extend(read_data())
         packets_to_send = send_data(packets_to_send)
-        recv_acks() #TODO change cwnd size
+        recv_acks()
         packets_to_send.extend(check_timeouts(packets_to_send))
         #if len(packets_to_send) == 0 and len(data_to_be_acked) == 0:
         if time.time() > start + 5:
