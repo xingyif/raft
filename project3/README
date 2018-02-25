@@ -1,3 +1,5 @@
+Both members, Yifan and Mike, pair programmed the entire project.
+
 **** High-level Approach:
 
 *The program is able to transfer a file with any number of packets dropped, damaged, duplicated, and delayed, and under a variety of different available bandwidths and link latencies.
