@@ -44,7 +44,24 @@ Both members, Yifan and Mike, pair programmed the entire project.
 
 
 *For 3700recv:
-
+    We divided the receive program into three parts
+    1. Receiving data: We receive data and store it in a buffer to combat               out of order packet delivery. In case the order comes out of order,
+        we can still print out the data in the correct order.
+    2. Processing data: We keep track of the sequence number we're looking
+        for (starting at zero) and every time we receive a packet we
+        increment the sequence number we're looking for by the size of the
+        data that we received. By removing data from the buffer only when
+        the sequence number of the data is the same as the sequence number
+        we're looking for, we prevent out of order packets from corrupting us.
+        Additionally, by dropping packets with sequence numbers lower than the
+        sequence we're looking for, we prevent from printing the same packet
+        more than once (prevent duplicates)
+    3. We ACK all data that comes through. This is the ensure that even if we
+        get duplicate packets, the send program takes those packets out of the
+        "to_be_acked" queue, so that our program can send more packets through.
+    END: When the recv file reads the packet tagged with "eof":True (aka done
+        reading data) we exit out of the program and print that we completed
+        the transfer.
 
 
 
