@@ -23,12 +23,75 @@ HTTP_VERSION = "HTTP/1.1"
 
 PORT = 80
 HOST_PORT = (HOST, PORT)
+
+urls_visited = []
+urls_tovisit = []
+secret_flags = []
+
+
 # create the socket
 try:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 except socket.error as e:
     print 'ERROR: Failed to create socket!'
     exit(1)
+
+
+
+class PageParser(HTMLParser):
+    def __init__(self):
+        HTMLParser.__init__(self)
+        self.csrf = None
+        self.session_id = None
+        self.secret_flag_found = False
+
+    def handle_starttag(self, tag, attrs):
+        global urls_visited, urls_tovisit, secret_flags
+        # find links in the page
+        if tag == 'a':
+            for attr, val in attrs:
+                if attr == 'href':
+                    # only add to tovisit list if the url has not been visited
+                    # doesn't exist in tovisit list already, and it's valid
+                    if val not in urls_visited and val not in urls_tovisit and "fring.ccs.neu.edu" in val:
+                        urls_tovisit.append(val)
+                        print("add a new valid url to visit: %s" % val)
+        # find secret flag
+        if tag == 'h2':
+            for attr, val in attrs:
+                if attr == 'class' and val == 'secret_flag':
+                    secret_flag = True
+
+
+
+    def handle_endtag(self, tag):
+        global urls_visited, urls_tovisit
+        #print("end tag: " + str(tag))
+        if tag == "html":
+            # remove the url from tovisit list
+            
+            # add to visited list
+            #urls_tovisit.remove()
+            pass
+
+    def handle_data(self, data):
+        global urls_visited, urls_tovisit, secret_flags
+        #print("Data: " + data)
+        if "csrftoken" in data:
+            self.csrf = data.split("csrftoken=")[1].split(";")[0]
+
+        if "sessionid" in data:
+            self.session_id = data.split("sessionid=")[1].split(";")[0]
+
+        if self.secret_flag_found:
+            flag = data.split(" ")[1]
+            if flag not in secret_flags:
+                secret_flags.append(flag)
+                self.secret_flag_found = False
+                print "found one secret flag %s" % str(flag)
+
+            
+
 
 """
     HTTP GET request
@@ -58,9 +121,13 @@ def http_POST(path, data, token, session_id):
 
 """
 Logging in to fakebook, HTTP POST
+1. initial GET request
+2. POST with csrf tocken and sessionid
+3. get new session id
+4. GET with new session id
 """
 def login():
-    global LOGIN_PATH, HOST, USERNAME, PASSWORD, HOST_PORT
+    global LOGIN_PATH, HOST, USERNAME, PASSWORD, HOST_PORT, full_login_path
     # connect to the socket
     sock.connect(HOST_PORT)
     # get request
@@ -89,13 +156,44 @@ def login():
     # response = sock.recv(9000)
     # print request
     # #sock.setblocking(0)
-    
-    
-    # interprete response code (200, 301, 403, 404, 500)
-    # cookie management
 
-# implement GET, send with cookie
+    # GET with cookie
+    # handle_http_status_codes(response, full_login_path)
+
 # read through xml and find flags, find hyperlinks, and recurse get
+
+"""
+    handle returned status codes
+    200 - accepted
+    301 - moved permanently. try the request again using the new URL given by the server in the Location header.
+    403 - Forbidden
+    404 - Not Found 
+     Our web server may return these codes in order to trip up your crawler.
+     In this case, your crawler should abandon the URL that generated the error code.
+    500 - Internal Server Error
+     Our web server may randomly return this error code to your crawler.
+     In this case, your crawler should re-try the request for the URL until the request is successful.
+"""
+
+def handle_http_status_codes(response, url):
+    status_code = response.split(' ')[1]
+    if status_code == '200':
+         # good
+         pass
+    if status_code == '301':
+        new_url = response.split('Location: ')[1].split('\n')[0]
+        # TODO make get (cookie) request again
+        # TODO remove url from tovisit, add to visited
+    if status_code == '403' or status_code == '404':
+        # abondon url
+        # TODO remove url from tovisit, add to visited
+        urls_tovisit.remove(url)
+    if status_code == '500':
+        # TODO make get (cookie) request again
+        pass
+
+
+
     
 def login_requests():
     global USERNAME, PASSWORD
