@@ -14,6 +14,7 @@ PASSWORD = "ZUE3UDQE"
 
 fakebook_url = urlparse('http://fring.ccs.neu.edu/fakebook/')
 login_url = urlparse('http://fring.ccs.neu.edu/accounts/login/?next=/fakebook/')
+full_login_path = "/accounts/login/?next=/fakebook/"
 HOST = fakebook_url.netloc 
 # fakebook_url.netloc fring.ccs.neu.edu
 FAKEBOOK_PATH = fakebook_url.path
@@ -34,9 +35,9 @@ except socket.error as e:
 """
 def http_GET(path):
     global HOST_PORT, HOST, HTTP_VERSION
-    get_request = Request("GET", path, HTTP_VERSION, HOST)
+    request = Request("GET", path, HTTP_VERSION, HOST)
     #print("getr" + get_request.get_str())
-    sock.sendall(get_request.get_str())
+    sock.sendall(request.get_request())
     response = sock.recv(9000)
     return response
 
@@ -47,9 +48,10 @@ def http_GET(path):
 """
 def http_POST(path, data, token, session_id):
     global HOST_PORT, HTTP_VERSION, HOST
-    post_request = Request("POST", path, HTTP_VERSION, HOST, data, token, session_id)
-    print("pstr" + post_request.get_str())
-    sock.sendall(post_request.get_str())
+    request = Request("POST", path, HTTP_VERSION, HOST, data, token, session_id)
+    print '==========================POST Request======================'
+    print(request.post_request())
+    sock.sendall(request.post_request())
     response = sock.recv(9000)
     return response
 
@@ -62,31 +64,30 @@ def login():
     # connect to the socket
     sock.connect(HOST_PORT)
     # get request
-    get_response = http_GET(LOGIN_PATH)
+    print '==========================GET Request======================'
+    get_response = http_GET(full_login_path)
     print("gs" + str(get_response))
     parser = PageParser()
     parsed_response = parser.feed(get_response)
-    """
-    data = {"username": USERNAME,
-            "password": PASSWORD,
-            "csrfmiddlewaretoken": "302f8c64d654abdb9f6d4db5ef5f76a4"
-            }
-    """
+    # get csrf token and session id
     token = str(parser.csrf)
     session_id = str(parser.session_id)
+    print '==========================token and session======================'
+    print token
+    print session_id
     data = "username=%s&password=%s&csrfmiddlewaretoken=%s" % (USERNAME, PASSWORD, token)
     # create POST request
-
-    post_response = http_POST(LOGIN_PATH, data, token, session_id)
-    print('----------------------------------------------------------')
+    post_response = http_POST(full_login_path, data, token, session_id)
+    print('-------------------------POST Response---------------------------------')
     print("ps" + str(post_response))
 
     # new_session_id = parser.feed(post_response).sessionid
 
-    # get_request = Request("GET", path, HTTP_VERSION, HOST)
-    # #print("getr" + get_request.get_str())
+    # request = Request("GET", ????, HTTP_VERSION, HOST)
+    # print("getr" + request.get_request())
     # sock.sendall(get_request.get_str())
     # response = sock.recv(9000)
+    # print request
     # #sock.setblocking(0)
     
     
