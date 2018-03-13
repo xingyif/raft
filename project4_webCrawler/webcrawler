@@ -57,7 +57,7 @@ def login():
     # cookie management
 
 # implement GET, send with cookie
-# read through xml and find flags
+# read through xml and find flags, find hyperlinks, and recurse get
     
 def login_requests():
     global USERNAME, PASSWORD
