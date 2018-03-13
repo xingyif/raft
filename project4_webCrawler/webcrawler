@@ -1,0 +1,112 @@
+#!/usr/bin/python
+
+import socket
+import sys
+from urlparse import urlparse
+from http import *
+import requests
+from lxml import html
+
+USERNAME = "1778409"
+PASSWORD = "ZUE3UDQE"
+
+fakebook_url = urlparse('http://fring.ccs.neu.edu/fakebook/')
+login_url = urlparse('http://fring.ccs.neu.edu/accounts/login?next=fakebook/')
+HOST = fakebook_url.netloc
+# fakebook_url.netloc fring.ccs.neu.edu
+FAKEBOOK_PATH = fakebook_url.path
+LOGIN_PATH = login_url.path
+
+PORT = 80
+HOST_PORT = (HOST, PORT)
+# create the socket
+try:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+except socket.error as e:
+    print 'ERROR: Failed to create socket!'
+    exit(1)
+
+
+"""
+Logging in to fakebook, HTTP POST
+"""
+def login():
+    global LOGIN_PATH, HOST, USERNAME, PASSWORD, HOST_PORT
+    """
+    data = {"username": USERNAME,
+            "password": PASSWORD,
+            "csrfmiddlewaretoken": "302f8c64d654abdb9f6d4db5ef5f76a4"
+            }
+    """
+    data = "username=%s&password=%s&csrfmiddlewaretoken=302f8c64d654abdb9f6d4db5ef5f76a4" % (USERNAME, PASSWORD)
+    # create POST request
+    post_request = Request("POST", LOGIN_PATH, "HTTP/1.1", HOST, data)
+    sock.connect(HOST_PORT)
+    print("HOST_PORT: %s" % str(HOST_PORT))
+    sock.sendall(post_request.get_str())
+
+    
+
+    response = sock.recv(1024)
+    print response
+
+    sock.shutdown(1)
+    sock.close()
+    
+    # interprete response code (200, 301, 403, 404, 500)
+    # cookie management
+
+# implement GET, send with cookie
+# read through xml and find flags
+    
+def login_requests():
+    global USERNAME, PASSWORD
+    session_requests = requests.session()
+
+    # Get login csrf token
+    result = session_requests.get('http://fring.ccs.neu.edu/accounts/login?next=fakebook/')
+    
+    authenticity_token = '302f8c64d654abdb9f6d4db5ef5f76a4'
+
+    # Create payload
+    payload = {
+        "username": USERNAME, 
+        "password": PASSWORD, 
+        "csrfmiddlewaretoken": authenticity_token
+    }
+    # Perform login
+    result = session_requests.post('http://fring.ccs.neu.edu/accounts/login?next=fakebook/', data = payload, headers = dict(referer = LOGIN_PATH))
+    print(result)
+    #result = session_requests.get(URL, headers = dict(referer = URL))
+
+
+"""
+# a list of sites that are visited
+# a list of sites to be visited
+# only craw the pages that are valid, starts with fring.ccs.neu.edu
+
+# loggin:
+    # 
+# Request class / Reponse class
+# implement HTTP/1.1:
+    # contains host in the header
+# HTTP requests:
+    # GET
+    # POST
+    # COOKIE MANAGEMENT
+# HTTP Response:
+    # 301
+    # 403
+    # 404
+    # 500
+# Interpret the responded html, and find flgas
+"""
+def main():
+    
+    login()
+    #login_requests()
+
+if __name__ == "__main__":
+    main()
+
+
