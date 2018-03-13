@@ -14,7 +14,7 @@ PASSWORD = "ZUE3UDQE"
 
 fakebook_url = urlparse('http://fring.ccs.neu.edu/fakebook/')
 login_url = urlparse('http://fring.ccs.neu.edu/accounts/login?next=fakebook/')
-HOST = fakebook_url.netloc
+HOST = fakebook_url.netloc 
 # fakebook_url.netloc fring.ccs.neu.edu
 FAKEBOOK_PATH = fakebook_url.path
 LOGIN_PATH = login_url.path
@@ -23,7 +23,7 @@ PORT = 80
 HOST_PORT = (HOST, PORT)
 # create the socket
 try:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 except socket.error as e:
     print 'ERROR: Failed to create socket!'
     exit(1)
@@ -44,26 +44,28 @@ def POST():
 Logging in to fakebook, HTTP POST
 """
 def login():
-    global LOGIN_PATH, HOST, USERNAME, PASSWORD, HOST_PORT
+    global LOGIN_PATH, HOST, USERNAME, PASSWORD, HOST_PORT, login_url
     """
     data = {"username": USERNAME,
             "password": PASSWORD,
             "csrfmiddlewaretoken": "302f8c64d654abdb9f6d4db5ef5f76a4"
             }
     """
-    get_request = Request("GET", LOGIN_PATH, "HTTP/1.1", HOST, "")
+    print(LOGIN_PATH)
+    get_request = Request("GET", 'http://fring.ccs.neu.edu/accounts/login/', "HTTP/1.1", HOST, "")
     sock.connect(HOST_PORT)
+    print(get_request.get_str())
     sock.sendall(get_request.get_str())
     data = "username=%s&password=%s&csrfmiddlewaretoken=302f8c64d654abdb9f6d4db5ef5f76a4" % (USERNAME, PASSWORD)
     # create POST request
     #post_request = Request("POST", LOGIN_PATH, "HTTP/1.1", HOST, data)
     #sock.connect(HOST_PORT)
-    #print("HOST_PORT: %s" % str(HOST_PORT))
+    print("HOST_PORT: %s" % str(HOST_PORT))
     #sock.sendall(post_request.get_str())
 
     
-
-    response = sock.recv(1024)
+    #sock.setblocking(0)
+    response = sock.recv(9000)
     print response
 
     sock.shutdown(1)

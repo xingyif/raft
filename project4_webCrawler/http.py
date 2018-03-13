@@ -12,7 +12,7 @@ class Request:
         self.path = path
         self.version = version
         self.host = host
-	self.data = data
+        self.data = data
     
     """
     converts this request into a json format (presumably to be sent)
@@ -29,13 +29,13 @@ class Request:
 class Response:
 
     def __init__(self, version, response_code, datetime, length):
-	self.version = version
-	self.response_code = response_code
-	self.datetime = datetime
-	self.length = length
+	    self.version = version
+	    self.response_code = response_code
+	    self.datetime = datetime
+	    self.length = length
 
 class PageParser(HTMLParser):
-    def __init__(self):
+    def __init__(self, csrf, urls, session_id):
         self.csrf = None
         self.urls = []
         self.session_id = None
