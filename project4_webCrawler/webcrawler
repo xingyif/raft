@@ -13,7 +13,7 @@ USERNAME = "1778409"
 PASSWORD = "ZUE3UDQE"
 
 fakebook_url = urlparse('http://fring.ccs.neu.edu/fakebook/')
-login_url = urlparse('http://fring.ccs.neu.edu/accounts/login/')
+login_url = urlparse('http://fring.ccs.neu.edu/accounts/login/?next=/fakebook/')
 HOST = fakebook_url.netloc 
 # fakebook_url.netloc fring.ccs.neu.edu
 FAKEBOOK_PATH = fakebook_url.path
@@ -80,8 +80,14 @@ def login():
     post_response = http_POST(LOGIN_PATH, data, token, session_id)
     print('----------------------------------------------------------')
     print("ps" + str(post_response))
-    
-    #sock.setblocking(0)
+
+    # new_session_id = parser.feed(post_response).sessionid
+
+    # get_request = Request("GET", path, HTTP_VERSION, HOST)
+    # #print("getr" + get_request.get_str())
+    # sock.sendall(get_request.get_str())
+    # response = sock.recv(9000)
+    # #sock.setblocking(0)
     
     
     # interprete response code (200, 301, 403, 404, 500)
