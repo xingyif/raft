@@ -2,6 +2,8 @@
 
 import json
 
+from HTMLParser import HTMLParser
+
 
 class Request:
     
@@ -31,3 +33,19 @@ class Response:
 	self.response_code = response_code
 	self.datetime = datetime
 	self.length = length
+
+class PageParser(HTMLParser):
+    def __init__(self):
+        self.csrf = None
+        self.urls = []
+        self.session_id = None
+
+    def handle_starttag(self, tag, attrs):
+        for attr in attrs:
+            print("attr: " + str(attr))
+
+    def handle_endtag(self, tag):
+        print("end tag: " + str(tag))
+
+    def handle_data(self, data):
+        print("Data: " + data)

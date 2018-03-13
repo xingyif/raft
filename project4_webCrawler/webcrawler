@@ -4,8 +4,10 @@ import socket
 import sys
 from urlparse import urlparse
 from http import *
-import requests
-from lxml import html
+
+
+#import requests
+#from lxml import html
 
 USERNAME = "1778409"
 PASSWORD = "ZUE3UDQE"
@@ -26,6 +28,17 @@ except socket.error as e:
     print 'ERROR: Failed to create socket!'
     exit(1)
 
+"""
+    HTTP GET request
+"""
+def GET():
+    pass
+
+"""
+    HTTP POST request
+"""
+def POST():
+    pass
 
 """
 Logging in to fakebook, HTTP POST
@@ -38,12 +51,15 @@ def login():
             "csrfmiddlewaretoken": "302f8c64d654abdb9f6d4db5ef5f76a4"
             }
     """
+    get_request = Request("GET", LOGIN_PATH, "HTTP/1.1", HOST, "")
+    sock.connect(HOST_PORT)
+    sock.sendall(get_request.get_str())
     data = "username=%s&password=%s&csrfmiddlewaretoken=302f8c64d654abdb9f6d4db5ef5f76a4" % (USERNAME, PASSWORD)
     # create POST request
-    post_request = Request("POST", LOGIN_PATH, "HTTP/1.1", HOST, data)
-    sock.connect(HOST_PORT)
-    print("HOST_PORT: %s" % str(HOST_PORT))
-    sock.sendall(post_request.get_str())
+    #post_request = Request("POST", LOGIN_PATH, "HTTP/1.1", HOST, data)
+    #sock.connect(HOST_PORT)
+    #print("HOST_PORT: %s" % str(HOST_PORT))
+    #sock.sendall(post_request.get_str())
 
     
 
