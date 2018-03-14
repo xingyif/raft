@@ -28,6 +28,8 @@ urls_visited = []
 urls_tovisit = []
 secret_flags = []
 
+csrf = 0
+session_id = 0
 
 # create the socket
 try:
@@ -41,8 +43,6 @@ except socket.error as e:
 class PageParser(HTMLParser):
     def __init__(self):
         HTMLParser.__init__(self)
-        self.csrf = None
-        self.session_id = None
         self.secret_flag_found = False
 
     def handle_starttag(self, tag, attrs):
@@ -53,15 +53,15 @@ class PageParser(HTMLParser):
                 if attr == 'href':
                     # only add to tovisit list if the url has not been visited
                     # doesn't exist in tovisit list already, and it's valid
-                    if val not in urls_visited and val not in urls_tovisit and "fring.ccs.neu.edu" in val:
-                        urls_tovisit.append(val)
-                        print("add a new valid url to visit: %s" % val)
+                    val_path = url_parse(val).path
+                    if val_path not in urls_visited and val_path not in urls_tovisit and "fring.ccs.neu.edu" in val:
+                        urls_tovisit.append(val_path)
+                        print("add a new valid url to visit: %s" % val_path)
         # find secret flag
         if tag == 'h2':
             for attr, val in attrs:
                 if attr == 'class' and val == 'secret_flag':
-                    secret_flag = True
-
+                    self.secret_flag_found = True
 
 
     def handle_endtag(self, tag):
@@ -75,20 +75,21 @@ class PageParser(HTMLParser):
             pass
 
     def handle_data(self, data):
-        global urls_visited, urls_tovisit, secret_flags
+        global urls_visited, urls_tovisit, secret_flags, csrf, session_id
         #print("Data: " + data)
         if "csrftoken" in data:
-            self.csrf = data.split("csrftoken=")[1].split(";")[0]
+            csrf = data.split("csrftoken=")[1].split(";")[0]
 
         if "sessionid" in data:
-            self.session_id = data.split("sessionid=")[1].split(";")[0]
+            session_id = data.split("sessionid=")[1].split(";")[0]
 
         if self.secret_flag_found:
             flag = data.split(" ")[1]
+            print "!!!!!!!!!!!!!!!!!!!!!!!!!!!!maybe this is the flag: " + str(flag)
             if flag not in secret_flags:
                 secret_flags.append(flag)
                 self.secret_flag_found = False
-                print "found one secret flag %s" % str(flag)
+                print "Yay!!! Found one secret flag %s" % str(flag)
 
             
 
@@ -99,24 +100,39 @@ class PageParser(HTMLParser):
 def http_GET(path):
     global HOST_PORT, HOST, HTTP_VERSION
     request = Request("GET", path, HTTP_VERSION, HOST)
-    #print("getr" + get_request.get_str())
+    # get request
+    print '==========================GET Request======================'
+    print(request.get_request())
     sock.sendall(request.get_request())
     response = sock.recv(9000)
-    return response
+    (status_code, resp) = handle_http_status_code(path)
+    return (status_code, resp)
 
-
+"""
+    HTTP GET request with the cookie
+"""
+def http_GET_with_cookie(path):
+    global session_id, csrf, HOST_PORT, HOST, HTTP_VERSION
+    request = Request("GET", path, HTTP_VERSION, HOST, token=csrf, session_id=session_id)
+    print '==========================GET Request======================'
+    print(request.get_request_with_cookie())
+    sock.sendall(request.get_request_with_cookie())
+    response = sock.recv(9000)
+    (status_code, resp) = handle_http_status_code(path)
+    return (status_code, resp)
 
 """
     HTTP POST request
 """
-def http_POST(path, data, token, session_id):
-    global HOST_PORT, HTTP_VERSION, HOST
-    request = Request("POST", path, HTTP_VERSION, HOST, data, token, session_id)
+def http_POST(path, data):
+    global HOST_PORT, HTTP_VERSION, HOST, session_id, csrf
+    request = Request("POST", path, HTTP_VERSION, HOST, data, csrf, session_id)
     print '==========================POST Request======================'
-    print(request.post_request(token, session_id))
-    sock.sendall(request.post_request(token, session_id))
+    print(request.post_request())
+    sock.sendall(request.post_request())
     response = sock.recv(9000)
-    return response
+    (status_code, resp) = handle_http_status_code(path)
+    return (status_code, resp)
 
 
 """
@@ -127,35 +143,31 @@ Logging in to fakebook, HTTP POST
 4. GET with new session id
 """
 def login():
-    global LOGIN_PATH, HOST, USERNAME, PASSWORD, HOST_PORT, full_login_path
+    global LOGIN_PATH, HOST, USERNAME, PASSWORD, HOST_PORT, full_login_path, csrf, session_id
     # connect to the socket
     sock.connect(HOST_PORT)
-    # get request
-    print '==========================GET Request======================'
-    get_response = http_GET(full_login_path)
-    print("gs" + str(get_response))
-    parser = PageParser()
-    parsed_response = parser.feed(get_response)
-    # get csrf token and session id
-    token = str(parser.csrf)
-    session_id = str(parser.session_id)
-    print '==========================token and session======================'
-    print token
-    print session_id
-    data = "username=%s&password=%s&csrfmiddlewaretoken=%s" % (USERNAME, PASSWORD, token)
-    # create POST request
-    post_response = http_POST(full_login_path, data, token, session_id)
-    print('-------------------------POST Response---------------------------------')
-    print("ps" + str(post_response))
+    (get_status, get_response) = http_GET(full_login_path)
+    print '---------------------------GET Response---------------------'
+    print(str(get_response))
+    while get_status == '200':
 
+        crawl_webpage(get_response)
+    else:
+        print"First GET failed, exit the program"
+        sys.exit(1)
+
+    # create POST request to login
+    data = "username=%s&password=%s&csrfmiddlewaretoken=%s&next=%%2Ffakebook%%2F" % (USERNAME, PASSWORD, csrf)
+    post_response = http_POST(LOGIN_PATH, data)
+    print('-------------------------POST Response---------------------------------')
+    print(str(post_response))
+    
+    # renew session id
+    crawl_webpage(post_response)
+    print("new session id = " + str(session_id))
+    handle_http_status_codes(post_response, LOGIN_PATH)
     # new_session_id = parser.feed(post_response).sessionid
 
-    request = Request("GET", "", HTTP_VERSION, HOST)
-    # print("getr" + request.get_request())
-    sock.sendall(request.get_2nd_request(token, session_id))
-    response = sock.recv(9000)
-    print('-------------------------2nd GET Response---------------------------------')
-    print response
     # #sock.setblocking(0)
 
     # GET with cookie
@@ -176,45 +188,60 @@ def login():
      In this case, your crawler should re-try the request for the URL until the request is successful.
 """
 
-def handle_http_status_codes(response, url):
+def handle_http_status_codes(response, path):
+    global urls_visited, urls_tovisit
     status_code = response.split(' ')[1]
     if status_code == '200':
          # good
-         pass
-    if status_code == '301':
+         return (status_code, response)
+    if status_code == '302':
         new_url = response.split('Location: ')[1].split('\n')[0]
-        # TODO make get (cookie) request again
-        # TODO remove url from tovisit, add to visited
+        new_url_path = urlparse(new_url).path
+        print("new path from POST" + str(new_url_path))
+        if session_id == 0:
+            new_response = http_GET(new_url_path)
+        else:
+            # make get (cookie) request again
+            new_response = http_GET_with_cookie(new_url_path)
+        print "----------------------new GET response from 302------------------"
+        print new_response        
+        # remove url path from tovisit, add to visited
+        if new_url_path in urls_tovisit:
+            urls_tovisit.remove(new_url_path)
+        if new_url_path not in urls_visited:
+            urls_visited.append(new_url_path)
+        #return (status_code, new_response)
     if status_code == '403' or status_code == '404':
-        # abondon url
-        # TODO remove url from tovisit, add to visited
-        urls_tovisit.remove(url)
+        # abondon url path
+        # remove url from tovisit, add to visited
+        if path in urls_tovisit:
+            urls_tovisit.remove(path)
+        if path not in urls_visited:
+            urls_visited.append(path)
+        return (status_code, response)
     if status_code == '500':
-        # TODO make get (cookie) request again
-        pass
+        if session_id == 0:
+            new_response = http_GET(path)
+        else:
+            # make get (cookie) request again
+            new_response = http_GET_with_cookie(path)
+            
+
+
+"""
+crawls the webpage: find new links to visit and find flags
+"""
+def crawl_webpage(response):
+    parser = PageParser()
+    parser.feed(response)
+    # csrf token and session id should be updated
+    print '==========================token and session======================'
+    print csrf
+    print session_id
 
 
 
-    
-def login_requests():
-    global USERNAME, PASSWORD
-    session_requests = requests.session()
 
-    # Get login csrf token
-    result = session_requests.get('http://fring.ccs.neu.edu/accounts/login?next=fakebook/')
-    
-    authenticity_token = '302f8c64d654abdb9f6d4db5ef5f76a4'
-
-    # Create payload
-    payload = {
-        "username": USERNAME, 
-        "password": PASSWORD, 
-        "csrfmiddlewaretoken": authenticity_token
-    }
-    # Perform login
-    result = session_requests.post('http://fring.ccs.neu.edu/accounts/login?next=fakebook/', data = payload, headers = dict(referer = LOGIN_PATH))
-    print(result)
-    #result = session_requests.get(URL, headers = dict(referer = URL))
 
 
 """
