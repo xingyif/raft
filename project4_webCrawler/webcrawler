@@ -69,7 +69,7 @@ class PageParser(HTMLParser):
         #print("end tag: " + str(tag))
         if tag == "html":
             # remove the url from tovisit list
-            
+
             # add to visited list
             #urls_tovisit.remove()
             pass
@@ -113,8 +113,8 @@ def http_POST(path, data, token, session_id):
     global HOST_PORT, HTTP_VERSION, HOST
     request = Request("POST", path, HTTP_VERSION, HOST, data, token, session_id)
     print '==========================POST Request======================'
-    print(request.post_request())
-    sock.sendall(request.post_request())
+    print(request.post_request(token, session_id))
+    sock.sendall(request.post_request(token, session_id))
     response = sock.recv(9000)
     return response
 
@@ -150,11 +150,12 @@ def login():
 
     # new_session_id = parser.feed(post_response).sessionid
 
-    # request = Request("GET", ????, HTTP_VERSION, HOST)
+    request = Request("GET", "", HTTP_VERSION, HOST)
     # print("getr" + request.get_request())
-    # sock.sendall(get_request.get_str())
-    # response = sock.recv(9000)
-    # print request
+    sock.sendall(request.get_2nd_request(token, session_id))
+    response = sock.recv(9000)
+    print('-------------------------2nd GET Response---------------------------------')
+    print response
     # #sock.setblocking(0)
 
     # GET with cookie
