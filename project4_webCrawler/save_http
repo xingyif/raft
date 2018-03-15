@@ -65,3 +65,107 @@ Cookie: csrftoken=%s; sessionid=%s
 
 
 
+""" The case where the first GET is chunked
+==========================GET Request======================
+GET /accounts/login/?next=/fakebook/ HTTP/1.1
+Host: fring.ccs.neu.edu
+
+
+in recv_response
+break out
+---------------------------GET Response---------------------
+HTTP/1.1 200 OK
+Date: Thu, 15 Mar 2018 16:40:38 GMT
+Server: Apache/2.2.22 (Ubuntu)
+Content-Language: en-us
+Expires: Thu, 15 Mar 2018 16:40:38 GMT
+Vary: Cookie,Accept-Language,Accept-Encoding
+Cache-Control: max-age=0
+Set-Cookie: csrftoken=d80a8321d4660e4a87614420f10e19d3; expires=Thu, 14-Mar-2019 16:40:38 GMT; Max-Age=31449600; Path=/
+Set-Cookie: sessionid=dbe4e08267803b75cdbceee90fd2730c; expires=Thu, 29-Mar-2018 16:40:38 GMT; Max-Age=1209600; Path=/
+Last-Modified: Thu, 15 Mar 2018 16:40:38 GMT
+Content-Length: 1152
+Content-Type: text/html; charset=utf-8
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+    "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<head>
+    <title>Fakebook</title>
+</head>
+
+<body>
+    <div id="header">
+
+	<a href="/">Home</a> |
+
+
+	<a href="/accounts/login/">Log in</a>
+
+	<hr />
+
+    </div>
+
+    <div id="content">
+
+<form method="post" action=".">
+  <p><label for="id_username">Username:</label> <input id="id_username" type="text" name="username" maxlength="30" /></p>
+<p><label for="id_password">Password:</label> <input id="id_password" type="password" name="password" maxlength="4096" /></p>
+<div style='display:none'><input type='hidden' name='csrfmiddlewaretoken' value='d80a8321d4660e4a87614420f10e19d
+==========================token and session======================
+d80a8321d4660e4a87614420f10e19d3
+dbe4e08267803b75cdbceee90fd2730c
+==========================POST Request======================
+POST /accounts/login/ HTTP/1.1
+Host: fring.ccs.neu.edu
+Content-Length: 107
+Cookie: csrftoken=d80a8321d4660e4a87614420f10e19d3; sessionid=dbe4e08267803b75cdbceee90fd2730c
+
+username=1778409&password=ZUE3UDQE&csrfmiddlewaretoken=d80a8321d4660e4a87614420f10e19d3&next=%2Ffakebook%2F
+
+in recv_response
+break out
+-------------------------POST Response---------------------------------
+HTTP/1.1 302 FOUND
+Date: Thu, 15 Mar 2018 16:40:38 GMT
+Server: Apache/2.2.22 (Ubuntu)
+Content-Language: en-us
+Expires: Thu, 15 Mar 2018 16:40:38 GMT
+Vary: Accept-Language,Cookie,Accept-Encoding
+Cache-Control: max-age=0
+Set-Cookie: sessionid=3b647dae539862ae338ec30573a2e55e; expires=Thu, 29-Mar-2018 16:40:38 GMT; Max-Age=1209600; Path=/
+Last-Modified: Thu, 15 Mar 2018 16:40:38 GMT
+Location: http://fring.ccs.neu.edu/fakebook/
+Content-Length: 0
+Content-Type: text/html; charset=utf-8
+
+
+==========================token and session======================
+d80a8321d4660e4a87614420f10e19d3
+dbe4e08267803b75cdbceee90fd2730c
+new session id = dbe4e08267803b75cdbceee90fd2730c
+int handle: path(/accounts/login/
+new path from POST/fakebook/
+==========================GET Request with cookie======================
+path: /fakebook/
+ HTTP/1.1book/
+Host: fring.ccs.neu.edu
+Cookie: csrftoken=d80a8321d4660e4a87614420f10e19d3; sessionid=dbe4e08267803b75cdbceee90fd2730c
+
+
+in recv_response
+break out
+----------------------new GET response from 302------------------
+HTTP/1.1 302 FOUND
+Date: Thu, 15 Mar 2018 16:40:38 GMT
+Server: Apache/2.2.22 (Ubuntu)
+Vary: Accept-Language,Accept-Encoding
+Content-Language: en-us
+Set-Cookie: sessionid=; expires=Thu, 01-Jan-1970 00:00:00 GMT; Max-Age=0; Path=/
+Location: http://fring.ccs.neu.edu/accounts/login/?next=/fakebook/
+Content-Length: 0
+Content-Type: text/html; charset=utf-8
+
+"""

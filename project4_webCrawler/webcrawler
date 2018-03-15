@@ -93,20 +93,21 @@ parser = PageParser()
 """
 receive HTTP responses using the socket
 """
-def recv_response(sock, timeout=1/100000000):
-    cur_time = time.time()
-    deadline = cur_time + timeout
+def recv_response(sock, timeout=1):
+
     full_response = ''
     full_response += sock.recv(9000)
     print("in recv_response")
-    while '</html>' not in full_response:
+    cur_time = time.time()
+    deadline = cur_time + timeout
+    while '</html>' not in full_response and time.time() < deadline:
         # socket should time out if it exceeds deadline
-        if time.time() > deadline:
-            print("break out")
-            break
-        sock.settimeout(deadline - time.time())
+        # if time.time() > deadline:
+        #     print("break out")
+        #     break
+        # sock.settimeout(deadline - time.time())
         resp = sock.recv(9000)
-        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~in while, before set timeout\n\n\n\n\n\n\n") # TODO why never printed this?
+        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~in while, before set timeout\n\n\n\n\n\n\n") # TODO only print this when timeout=1
         if resp:
             print("add rep to full_response")
             full_response += resp
@@ -290,7 +291,6 @@ def login():
     # renew session id
     crawl_webpage(post_response)
     print("new session id = " + str(session_id))
-    print("post is not None: " + post_response)
     (POST_status, POST_response) = handle_http_status_codes(post_response, LOGIN_PATH)
     if POST_status == '200':
         crawl_webpage(POST_response)
@@ -339,6 +339,7 @@ in handle_end_tag, if chunked = True
 """
 def main():
     login()
+    print("about the crawl all: paths_tovisit: %d" % len(paths_tovisit))
     # not yet gathered all 5 flags
     while len(paths_tovisit) > 0 and len(secret_flags) < 5:
         # crawl all links found
