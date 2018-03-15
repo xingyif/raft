@@ -148,11 +148,17 @@ def login():
     print('-------------------------POST Response---------------------------------')
     print("ps" + str(post_response))
 
-    # new_session_id = parser.feed(post_response).sessionid
+    # create 2nd POST request
+    post_response = http_POST(full_login_path, data, token, session_id)
+    print('-------------------------2nd POST Response---------------------------------')
+    print("ps" + str(post_response))
 
-    request = Request("GET", "", HTTP_VERSION, HOST)
+    parser.feed(post_response)
+    new_sid = parser.session_id
+    print("new session id(%s)" % new_sid)
+    request = Request("GET", "", HTTP_VERSION, HOST, token=new_sid)
     # print("getr" + request.get_request())
-    sock.sendall(request.get_2nd_request(token, session_id))
+    sock.sendall(request.get_2nd_request(token, new_sid))
     response = sock.recv(9000)
     print('-------------------------2nd GET Response---------------------------------')
     print response
