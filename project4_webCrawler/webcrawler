@@ -94,6 +94,7 @@ parser = PageParser()
 receive HTTP responses using the socket
 """
 def recv_response(sock):
+    # TODO add timeout for socket
     full_response = ''
     full_response += sock.recv(9000)
     while '</html>' not in full_response:
@@ -264,7 +265,11 @@ def login():
     GET_response = http_GET(full_login_path)
     print '---------------------------GET Response---------------------'
     print(GET_response)
+    #if GET_status == '200':
     crawl_webpage(GET_response)
+    # else:
+        # print"First GET failed, exit the program"
+        # sys.exit(1)
 
     # create POST request to login
     data = 'username=%s&password=%s&csrfmiddlewaretoken=%s&next=%%2Ffakebook%%2F' % (USERNAME, PASSWORD, csrf)
