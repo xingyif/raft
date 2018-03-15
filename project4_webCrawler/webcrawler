@@ -93,16 +93,23 @@ parser = PageParser()
 """
 receive HTTP responses using the socket
 """
-def recv_response(sock):
-    # TODO add timeout for socket
+def recv_response(sock, timeout=1/100000000):
+    cur_time = time.time()
+    deadline = cur_time + timeout
     full_response = ''
     full_response += sock.recv(9000)
+    print("in recv_response")
     while '</html>' not in full_response:
-        resp = sock.recv(9000)
-        if resp:
-            full_response += resp
-        else:
+        # socket should time out if it exceeds deadline
+        if time.time() > deadline:
+            print("break out")
             break
+        sock.settimeout(deadline - time.time())
+        resp = sock.recv(9000)
+        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~in while, before set timeout\n\n\n\n\n\n\n") # TODO why never printed this?
+        if resp:
+            print("add rep to full_response")
+            full_response += resp
 
     sock.close()
     return full_response
@@ -135,19 +142,21 @@ def handle_http_status_codes(response, path):
         new_url = response.split('Location: ')[1].split('\n')[0]
         new_url_path = urlparse(new_url).path
         print("new path from POST" + str(new_url_path))
-        # remove url path from tovisit, add to visited
-        if new_url_path in paths_tovisit:
-            paths_tovisit.remove(new_url_path)
-        if new_url_path not in paths_visited:
-            paths_visited.append(new_url_path)
+
         # redirect GET to the new url path
         if session_id == '':
             new_response = http_GET(new_url_path)
         else:
             # make get (cookie) request again
             new_response = http_GET_with_cookie(new_url_path)
+        # remove url path from tovisit, add to visited
+        if new_url_path in paths_tovisit:
+            paths_tovisit.remove(new_url_path)
+        if new_url_path not in paths_visited:
+            paths_visited.append(new_url_path)
         print "----------------------new GET response from 302------------------"
         print new_response  # TODO if delete this then no welcome page, why
+        return (status_code, response)
 
     if status_code == '403' or status_code == '404':
         # abondon url path
@@ -164,7 +173,7 @@ def handle_http_status_codes(response, path):
         else:
             # make get (cookie) request again
             http_GET_with_cookie(path)
-
+        return (status_code, response)
 
 
 """
@@ -212,6 +221,7 @@ Cookie: csrftoken=%s; sessionid=%s
         # connect to the socket
         sock.connect(HOST_PORT)
         sock.sendall(request_as_str)
+        #sock.settimeout(None) # TODO should i set timeout here?
         response = recv_response(sock)
         #(status_code, resp) = handle_http_status_codes(response, path)
         return response #(status_code, resp)
