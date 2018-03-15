@@ -2,8 +2,9 @@
 
 import socket
 import sys
+from HTMLParser import HTMLParser
 from urlparse import urlparse
-from http import *
+
 import time
 
 USERNAME = "1778409"
@@ -27,13 +28,6 @@ secret_flags = []
 
 csrf = ''
 session_id = ''
-
-# create the socket
-try:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-except socket.error as e:
-    print 'ERROR: Failed to create socket!'
-    exit(1)
 
 
 
@@ -92,52 +86,26 @@ class PageParser(HTMLParser):
                 self.secret_flag_found = False
                 print "Yay!!! Found one secret flag %s" % str(flag)
 
-            
+
+parser = PageParser()
 
 
 """
-    HTTP GET request
+receive HTTP responses using the socket
 """
-def http_GET(path):
-    global HOST_PORT, HOST, HTTP_VERSION
-    request = Request("GET", path, HTTP_VERSION, HOST)
-    # construct GET request
-    print '==========================GET Request======================'
-    # send GET request
-    sock.sendall(request.get_request())
-    # get response
-    response = sock.recv(9000)
-    (status_code, resp) = handle_http_status_codes(response, path)
-    return (status_code, resp)
+def recv_response(sock):
+    full_response = ''
+    full_response += sock.recv(9000)
+    while '</html>' not in full_response:
+        resp = sock.recv(9000)
+        if resp:
+            full_response += resp
+        else:
+            break
 
+    sock.close()
+    return full_response
 
-
-"""
-    HTTP GET request with the cookie
-"""
-def http_GET_with_cookie(path):
-    global session_id, csrf, HOST_PORT, HOST, HTTP_VERSION
-    request = Request("GET", path, HTTP_VERSION, HOST, token=csrf, session_id=session_id)
-    print '==========================GET Request======================'
-    print(request.get_request_with_cookie())
-    sock.sendall(request.get_request_with_cookie())
-    response = sock.recv(9000)
-    (status_code, resp) = handle_http_status_codes(response, path)
-    return (status_code, resp)
-
-
-
-"""
-    HTTP POST request
-"""
-def http_POST(path, data):
-    global HOST_PORT, HTTP_VERSION, HOST, session_id, csrf
-    request = Request("POST", path, HTTP_VERSION, HOST, data, csrf, session_id)
-    print '==========================POST Request======================'
-    print(request.post_request())
-    sock.sendall(request.post_request())
-    response = sock.recv(9000)
-    return response
 
 
 
@@ -156,6 +124,8 @@ def http_POST(path, data):
 
 def handle_http_status_codes(response, path):
     global paths_visited, paths_tovisit
+    print("int handle: path(" + path)
+
     status_code = response.split(' ')[1]
     if status_code == '200':
          return (status_code, response)
@@ -176,7 +146,7 @@ def handle_http_status_codes(response, path):
             # make get (cookie) request again
             new_response = http_GET_with_cookie(new_url_path)
         print "----------------------new GET response from 302------------------"
-        print new_response
+        print new_response  # TODO if delete this then no welcome page, why
 
     if status_code == '403' or status_code == '404':
         # abondon url path
@@ -194,6 +164,91 @@ def handle_http_status_codes(response, path):
             # make get (cookie) request again
             http_GET_with_cookie(path)
 
+
+
+"""
+    HTTP GET request
+"""
+def http_GET(path):
+    global HOST_PORT, HOST, HTTP_VERSION
+    # construct GET request
+    request_as_str = "GET %s %s\nHost: %s\n\n" % (path, HTTP_VERSION, HOST)
+    print('==========================GET Request======================')
+    print(request_as_str)
+    # send GET request
+    # create the socket
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # connect to the socket
+        sock.connect(HOST_PORT)
+        sock.sendall(request_as_str)
+        # get response
+        response = recv_response(sock)
+        #(status_code, resp) = handle_http_status_codes(response, path)
+        return response #(status_code, resp)
+
+    except socket.error as e:
+        print 'ERROR: Failed to create socket! %s' %e
+        exit(1)
+
+
+"""
+    HTTP GET request with the cookie
+"""
+def http_GET_with_cookie(path):
+    global session_id, csrf, HOST_PORT, HOST, HTTP_VERSION
+    request_as_str = '''\
+GET %s %s
+Host: %s
+Cookie: csrftoken=%s; sessionid=%s
+
+''' % (path, HTTP_VERSION, HOST, csrf, session_id)
+    print '==========================GET Request with cookie======================'
+    print("path: " + path)
+    print(request_as_str)
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # connect to the socket
+        sock.connect(HOST_PORT)
+        sock.sendall(request_as_str)
+        response = recv_response(sock)
+        #(status_code, resp) = handle_http_status_codes(response, path)
+        return response #(status_code, resp)
+
+    except socket.error as e:
+        print 'ERROR: Failed to create socket! %s' %e
+        exit(1)
+
+
+"""
+    HTTP POST request
+"""
+def http_POST(path, data):
+    global HOST_PORT, HTTP_VERSION, HOST, session_id, csrf
+    request_as_str = '''\
+POST %s %s
+Host: %s
+Content-Length: %d
+Cookie: csrftoken=%s; sessionid=%s
+
+%s
+''' % (path, HTTP_VERSION, HOST, len(data), csrf, session_id, data)
+    print '==========================POST Request======================'
+    print(request_as_str)
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # connect to the socket
+        sock.connect(HOST_PORT)
+        sock.sendall(request_as_str)
+        response = recv_response(sock)
+        return response
+
+    except socket.error as e:
+        print 'ERROR: Failed to create socket! %s' %e
+        exit(1)
+
+
+
 """
 Logging in to fakebook, HTTP POST
 1. initial GET request
@@ -205,17 +260,11 @@ Logging in to fakebook, HTTP POST
 
 def login():
     global LOGIN_PATH, HOST, USERNAME, PASSWORD, HOST_PORT, full_login_path, csrf, session_id
-    # connect to the socket
-    sock.connect(HOST_PORT)
     # initial GET request and GET response
-    (GET_status, GET_response) = http_GET(full_login_path)
+    GET_response = http_GET(full_login_path)
     print '---------------------------GET Response---------------------'
-    print(str(GET_response))
-    if GET_status == '200':
-        crawl_webpage(GET_response)
-    else:
-        print"First GET failed, exit the program"
-        sys.exit(1)
+    print(GET_response)
+    crawl_webpage(GET_response)
 
     # create POST request to login
     data = 'username=%s&password=%s&csrfmiddlewaretoken=%s&next=%%2Ffakebook%%2F' % (USERNAME, PASSWORD, csrf)
@@ -226,6 +275,7 @@ def login():
     # renew session id
     crawl_webpage(post_response)
     print("new session id = " + str(session_id))
+    print("post is not None: " + post_response)
     (POST_status, POST_response) = handle_http_status_codes(post_response, LOGIN_PATH)
     if POST_status == '200':
         crawl_webpage(POST_response)
@@ -236,7 +286,7 @@ def login():
 crawls the webpage: find new links to visit and find flags
 """
 def crawl_webpage(response):
-    parser = PageParser()
+    global parser
     parser.feed(response)
     # csrf token and session id should be updated
     print '==========================token and session======================'

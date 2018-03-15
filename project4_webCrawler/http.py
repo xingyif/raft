@@ -22,7 +22,7 @@ class Request:
     @return String - the constructed request
     """
     def get_request(self):
-        request_as_str = "%s %s %s\nHost: %s\n\n" % (self.request_type, self.path, self.version, self.host)
+        request_as_str = "%s %s %s\nHost: %s" % (self.request_type, self.path, self.version, self.host)
         # request_as_str += "Cookie: csrftoken=%s; sessionid=%s\n\n&next=/fakebook/" % (self.token, self.session_id)
         print "-----------------initial request-----------"
         print request_as_str
@@ -59,24 +59,6 @@ Cookie: csrftoken=%s; sessionid=%s
 %s
 ''' % (self.path, self.version, self.host, len(self.data), self.token, self.session_id, self.data)
         return request_as_str
-
-
-
-
-
-class Response:
-
-    def __init__(self, version, response_code, datetime, length):
-	    self.version = version
-	    self.response_code = response_code
-	    self.datetime = datetime
-	    self.length = length
-
-
-
-
-
-
 
 
 
