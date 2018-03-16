@@ -6,8 +6,8 @@ from urlparse import urlparse
 from HTMLParser import HTMLParser
 import time
 
-USERNAME = "1778409"
-PASSWORD = "ZUE3UDQE"
+USERNAME = "1622045"
+PASSWORD = "14YURN58"
 
 fakebook_url = urlparse('http://fring.ccs.neu.edu/fakebook/')
 login_url = urlparse('http://fring.ccs.neu.edu/accounts/login/?next=/fakebook/')
