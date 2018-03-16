@@ -4,7 +4,7 @@ import socket
 import sys
 from urlparse import urlparse
 from HTMLParser import HTMLParser
-
+import time
 
 USERNAME = "1778409"
 PASSWORD = "ZUE3UDQE"
@@ -21,21 +21,12 @@ HTTP_VERSION = "HTTP/1.1"
 PORT = 80
 HOST_PORT = (HOST, PORT)
 
-urls_visited = []
-urls_tovisit = []
+paths_visited = []
+paths_tovisit = []
 secret_flags = []
 
-csrf = 0
-session_id = 0
-
-# create the socket
-"""
-try:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-except socket.error as e:
-    print 'ERROR: Failed to create socket!'
-    exit(1)
-"""
+csrf = ''
+session_id = ''
 
 class PageParser(HTMLParser):
     def __init__(self):
@@ -43,44 +34,98 @@ class PageParser(HTMLParser):
         self.secret_flag_found = False
 
     def handle_starttag(self, tag, attrs):
-        global urls_visited, urls_tovisit, secret_flags
+        global paths_visited, paths_tovisit, secret_flags
         # find links in the page
+        if tag == 'a':
+            for attr, val in attrs:
+                if attr == 'href':
+                    # only add to tovisit list if the url has not been visited
+                    # doesn't exist in tovisit list already, and it's valid
+                    val_path = urlparse(val).path
+                    #SP: ask about this
+                    if val_path not in paths_visited and val_path not in paths_tovisit and val.startswith('/') and val.endswith('/'):
+                        #print("found: %s" % val_path)
+                        paths_tovisit.append(val_path)
+                        #print("add a new valid url to visit: %s" % val_path)
+        # find secret flag
+        if tag == 'h2':
+            for attr, val in attrs:
+                if attr == 'class' and val == 'secret_flag':
+                    self.secret_flag_found = True
         
 
 
     def handle_endtag(self, tag):
-        global urls_visited, urls_tovisit
+        global paths_visited, paths_tovisit
         #print("end tag: " + str(tag))
         if tag == "html":
-            # remove the url from tovisit list
-
-            # add to visited list
-            #urls_tovisit.remove()
             pass
 
     def handle_data(self, data):
-        global urls_visited, urls_tovisit, secret_flags, csrf, session_id
+        global paths_visited, paths_tovisit, secret_flags, csrf, session_id
         #print("Data: " + data)
         if "csrftoken" in data:
             csrf = data.split("csrftoken=")[1].split(";")[0]
 
         if "sessionid" in data:
             session_id = data.split("sessionid=")[1].split(";")[0]
+        if "FLAG:" in data:
+            flag = data.split("FLAG:")[1].split("</h2>")[0]
+            secret_flags.append(flag)
+            print(flag)
+            print("FLAG #" + str(len(secret_flags)))
 
+"""
+receive HTTP responses using the socket
+"""
+def recv_response(sock, timeout=1/100):
+    data = ''
+    data_buffer = ""
+    sock.settimeout(.3)
+    while True:
+        try:
+            data = sock.recv(9000)
+
+            if not data:
+                break
+            data_buffer+=data
+        except:
+            break
+            #error 10035 is no data available, it is non-fatal
+            #if errorCode != 10035:
+    if data:
+        pass
+        #print "last call received data:"
+    else:
+        pass
+        #print "last call didn't receive data"
+    return data_buffer
+
+    
 
 def login_GET():
-    global full_login_path, HTTP_VERSION, HOST
+    global full_login_path, HTTP_VERSION, HOST, HOST_PORT
 
     request = "GET %s %s\nHost: %s\n\n" % (full_login_path, HTTP_VERSION, HOST)
     #sock.sendall(request)
-    print("LOGIN GET: " + request)
-    #response = sock.recv(9000)
-    response = send_and_receive(request)
-    print("LOGIN GET: " + response)
-    return response
+    #print("============================LOGIN REQUEST============================")
+    #print(request)
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect(HOST_PORT)
+        sock.sendall(request)
+        response = recv_response(sock)
+        #print("============================LOGIN RESPONSE============================")
+        #print(response)
+        return response
+    except socket.error as e:
+        #print 'ERROR: Failed to create socket! $s' %e
+        exit(1)
 
 def cookie_GET(path):
-    global HTTP_VERSION, HOST, csrf, session_id
+    global HTTP_VERSION, HOST, csrf, session_id, HOST_PORT
+
+    #print("RECEIVED PATH: " + path)
 
     #request = "GET %s %s\nHost: %s\n" % (path, HTTP_VERSION, HOST)
     #request+= "Cookie: csrftoken=%s; sessionid=%s\n\n" (csrf, session_id)
@@ -91,14 +136,22 @@ Cookie: csrftoken=%s; sessionid=%s
 
 ''' % (path, HTTP_VERSION, HOST, csrf, session_id)
     #sock.sendall(request)
-    print("GET: " + request)
-    #response = sock.recv(9000)
-    response = send_and_receive(request)
-    print("GET: " + response)
-    return response
+    #print("============================GET REQUEST============================")
+    #print(request)
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect(HOST_PORT)
+        sock.sendall(request)
+        response = recv_response(sock)
+        #print("============================GET RESPONSE============================")
+        #print(response)
+        return response
+    except socket.error as e:
+        #print 'ERROR: Failed to create socket! $s' %e
+        exit(1)
 
 def login_POST(path):
-    global HTTP_VERSION, HOST, csrf, session_id, USERNAME, PASSWORD
+    global HTTP_VERSION, HOST, csrf, session_id, USERNAME, PASSWORD, HOST_PORT
 
     data = "username=%s&password=%s&csrfmiddlewaretoken=%s&next=%%2Ffakebook%%2F" % (USERNAME, PASSWORD, csrf)
     #request = "POST %s %s\nHost: %s\n" % (path, HTTP_VERSION, HOST)
@@ -112,12 +165,19 @@ Cookie: csrftoken=%s; sessionid=%s
 
 %s
 ''' % (path, HTTP_VERSION, HOST, len(data), csrf, session_id, data)
-    print("LOGIN POST: " + request)
-    #sock.sendall(request)
-    #response = sock.recv(9000)
-    response = send_and_receive(request)
-    print("LOGIN POST: " + response)
-    return response
+    #print("============================POST REQUEST============================")
+    #print(request)
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect(HOST_PORT)
+        sock.sendall(request)
+        response = recv_response(sock)
+        #print("============================POST RESPONSE============================")
+        #print(response)
+        return response
+    except socket.error as e:
+        #print 'ERROR: Failed to create socket! $s' %e
+        exit(1)
 
 def login():
     global HOST_PORT, LOGIN_PATH
@@ -128,7 +188,7 @@ def login():
     crawl_webpage(get_response)
     post_response = login_POST(LOGIN_PATH)
     crawl_webpage(post_response)
-    handle_http_status_codes(post_response)
+    handle_http_status_codes(post_response, LOGIN_PATH)
 
 def crawl_webpage(response):
     global csrf, session_id
@@ -136,34 +196,60 @@ def crawl_webpage(response):
     parser = PageParser()
     parser.feed(response)
     # csrf token and session id should be updated
-    print '==========================token and session======================'
-    print csrf
-    print session_id
+    #print '==========================token and session======================'
+    #print csrf
+    #print session_id
 
-def handle_http_status_codes(response):
-    status_code = response.split(' ')[1]
+def handle_http_status_codes(response, path):
+    status_code = ""
+    try:
+        status_code = response.split(' ')[1]
+    except:
+        print(path)
+        print(response)
+        return '404'
     #print(str(status_code))
     if status_code == '200':
-         # good
          pass
     if status_code == '301' or status_code == '302':
-        new_url = response.split('Location: ')[1].split('\n')[0]
-        cookie_GET(new_url)
+        new_path = str(urlparse(response.split('Location: ')[1].split('\n')[0]).path).rstrip('\r')
+        #print ("NEW LOCATION: " + new_path)
+        response = cookie_GET(new_path)
+        #crawl from here?
+        if new_path not in paths_tovisit and new_path not in paths_visited:
+            paths_tovisit.append(new_path)
+        if path not in paths_visited:
+            paths_visited.append(path)
+        if path in paths_tovisit:
+            paths_tovisit.remove(path)
         # TODO make get (cookie) request again
         # TODO remove url from tovisit, add to visited
     if status_code == '403' or status_code == '404':
-        pass
-        # abondon url
-        # TODO remove url from tovisit, add to visited
+        if path in paths_tovisit:
+            paths_tovisit.remove(path)
+        if path not in paths_visited:
+            paths_visited.append(path)
+
     if status_code == '500':
-        pass
-        # TODO make get (cookie) request again
+        response = cookie_GET(path)
+        handle_http_status_codes(response, path)
+    return status_code
 
 
 def main():
     
     login()
-    #login_requests()
+    while len(paths_tovisit) > 0 and len(secret_flags) < 5:
+        for path in paths_tovisit:
+            if path not in paths_visited:
+                response = cookie_GET(path)
+                status_code = handle_http_status_codes(response, path)
+                if status_code == '200':
+                    crawl_webpage(response)
+                    paths_visited.append(path)
+                    paths_tovisit.remove(path)
+    sys.exit(0)
+
 
 if __name__ == "__main__":
     main()
