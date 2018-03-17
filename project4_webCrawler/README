@@ -1,0 +1,15 @@
+High-level approach:
+
+Challenges:
+Performance was our biggest challenge. We tried to simplify our design and look for any places
+where performance could be affected by linear time operations, and tried to make them constant 
+with dictionaries. We also tried to implementing gzip encoding but [result]
+
+Testing:
+We made sure to print urls that weren't valid while going through to see that we weren't going
+off-site. We consistently checked for exceptions where they could reasonably be thrown and made
+sure we weren't getting stuck in loops. We timed out our sockets properly 
+
+
+Contributions:
+We pair-programmed. 
