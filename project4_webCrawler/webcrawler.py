@@ -25,9 +25,9 @@ HTTP_VERSION = "HTTP/1.1"
 PORT = 80
 HOST_PORT = (HOST, PORT)
 
-paths_visited = []
-paths_tovisit = []
-secret_flags = []
+paths_visited = set()
+paths_tovisit = set()
+secret_flags = set()
 
 csrf = ''
 session_id = ''
@@ -50,7 +50,7 @@ class PageParser(HTMLParser):
                     val_path = urlparse(val).path
                     if val_path not in paths_visited and val_path not in paths_tovisit and val.startswith('/fakebook/'):
                         #print("found: %s" % val_path)
-                        paths_tovisit.append(val_path)
+                        paths_tovisit.add(val_path)
                         #print("add a new valid url to visit: %s" % val_path)
         # find secret flag
         if tag == 'h2':
@@ -60,12 +60,11 @@ class PageParser(HTMLParser):
 
 
     def handle_endtag(self, tag):
-        global paths_visited, paths_tovisit
         if tag == "html":
             pass
 
     def handle_data(self, data):
-        global paths_visited, paths_tovisit, secret_flags, csrf, session_id
+        global secret_flags, csrf, session_id
         if "csrftoken" in data:
             csrf = data.split("csrftoken=")[1].split(";")[0]
 
@@ -83,7 +82,7 @@ class PageParser(HTMLParser):
         # found a new flag, print it TODO check length?
         if 'FLAG:' in data: # FLAG: 64-characters-of-random-alphanumerics
             flag = data.split(" ")[1] #flag = data.split('FLAG:')[1].split('</h2>')[0]
-            secret_flags.append(flag)
+            secret_flags.add(flag)
             print(flag)
             print('Flag length: %d' % len(flag))
 
@@ -161,10 +160,10 @@ def handle_http_status_codes(response, path):
         new_path = urlparse(response.split('Location: ')[1].split('\r\n')[0]).path
         # add the new_path to visit
         if new_path not in paths_tovisit and new_path not in paths_visited:
-            paths_tovisit.append(new_path)
+            paths_tovisit.add(new_path)
         # add current path to already visited list
         if path not in paths_visited:
-            paths_visited.append(path)
+            paths_visited.add(path)
         # removed path from to visit list
         if path in paths_tovisit:
             paths_tovisit.remove(path)
@@ -175,13 +174,13 @@ def handle_http_status_codes(response, path):
         if path in paths_tovisit:
             paths_tovisit.remove(path)
         if path not in paths_visited:
-            paths_visited.append(path)
+            paths_visited.add(path)
     elif status_code == '500':
         # try to GET the same page again
         # response = cookie_GET(path)
         # handle_http_status_codes(response, path)
         if path not in paths_tovisit:
-            paths_tovisit.append(path)
+            paths_tovisit.add(path)
     return status_code
 
 
@@ -355,7 +354,7 @@ def main():
                     crawl_webpage(response)
                     # add path to list of path already visited
                     if cur_path not in paths_visited:
-                        paths_visited.append(cur_path)
+                        paths_visited.add(cur_path)
                     # remove path from to visit list of paths
                     if cur_path in paths_tovisit:
                         paths_tovisit.remove(cur_path)
