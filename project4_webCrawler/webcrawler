@@ -43,7 +43,7 @@ class PageParser(HTMLParser):
                     # doesn't exist in tovisit list already, and it's valid
                     val_path = urlparse(val).path
                     #SP: ask about this
-                    if val_path not in paths_visited and val_path not in paths_tovisit and val.startswith('/') and val.endswith('/'):
+                    if val_path not in paths_visited and val_path not in paths_tovisit and val.startswith('/fakebook'):
                         #print("found: %s" % val_path)
                         paths_tovisit.append(val_path)
                         #print("add a new valid url to visit: %s" % val_path)
@@ -210,11 +210,11 @@ def handle_http_status_codes(response, path):
         return '404'
     #print(str(status_code))
     if status_code == '200':
-         pass
+        pass
     if status_code == '301' or status_code == '302':
         new_path = str(urlparse(response.split('Location: ')[1].split('\n')[0]).path).rstrip('\r')
         #print ("NEW LOCATION: " + new_path)
-        response = cookie_GET(new_path)
+        #response = cookie_GET(new_path)
         #crawl from here?
         if new_path not in paths_tovisit and new_path not in paths_visited:
             paths_tovisit.append(new_path)
