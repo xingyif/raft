@@ -3,9 +3,8 @@ import gzip
 import socket
 import sys
 from HTMLParser import HTMLParser
-from StringIO import StringIO
 from urlparse import urlparse
-
+import cStringIO
 import time
 
 import zlib
@@ -190,7 +189,7 @@ def handle_http_status_codes(response, path):
 def login_GET(path):
     global HOST_PORT, HOST, HTTP_VERSION
     # construct GET request
-    request = "GET %s %s\nHost: %s\n\n" % (path, HTTP_VERSION, HOST)
+    request = "GET %s %s\nHost: %s\nConnection: keep-alive\n\n" % (path, HTTP_VERSION, HOST)
     #print('==========================GET Request======================')
     #print(request_as_str)
 
@@ -217,6 +216,7 @@ def cookie_GET(path):
     request = '''\
 GET %s %s
 Host: %s
+Connection: keep-alive
 Cookie: csrftoken=%s; sessionid=%s
 
 ''' % (path, HTTP_VERSION, HOST, csrf, session_id)
@@ -248,6 +248,7 @@ def login_POST(path):
 POST %s %s
 Host: %s
 Content-Length: %d
+Connection: keep-alive
 Cookie: csrftoken=%s; sessionid=%s
 
 %s
