@@ -121,9 +121,9 @@ dbe4e08267803b75cdbceee90fd2730c
 POST /accounts/login/ HTTP/1.1
 Host: fring.ccs.neu.edu
 Content-Length: 107
-Cookie: csrftoken=d80a8321d4660e4a87614420f10e19d3; sessionid=dbe4e08267803b75cdbceee90fd2730c
+Cookie: csrftoken=cd3c7716d49e527d43253b77379b6c22; sessionid=f4ed6d2caff37a944343a404d31b4bd3
 
-username=1778409&password=ZUE3UDQE&csrfmiddlewaretoken=d80a8321d4660e4a87614420f10e19d3&next=%2Ffakebook%2F
+username=1778409&password=ZUE3UDQE&csrfmiddlewaretoken=cd3c7716d49e527d43253b77379b6c22&next=%2Ffakebook%2F
 
 in recv_response
 break out
@@ -149,10 +149,9 @@ new session id = dbe4e08267803b75cdbceee90fd2730c
 int handle: path(/accounts/login/
 new path from POST/fakebook/
 ==========================GET Request with cookie======================
-path: /fakebook/
- HTTP/1.1book/
+GET /fakebook/ HTTP/1.1
 Host: fring.ccs.neu.edu
-Cookie: csrftoken=d80a8321d4660e4a87614420f10e19d3; sessionid=dbe4e08267803b75cdbceee90fd2730c
+Cookie: csrftoken=d80a8321d4660e4a87614420f10e19d3; sessionid=8fcd184e6b0e81d7d6ffedb63dbeddfb
 
 
 in recv_response

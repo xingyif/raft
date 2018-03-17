@@ -65,3 +65,4 @@ Cookie: csrftoken=%s; sessionid=%s
 
 
 
+status_code = "HTTP/1.1 200 OK".split(' ')[1]

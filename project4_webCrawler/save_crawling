@@ -278,6 +278,14 @@ in handle_end_tag, if chunked = True
 # Interpret the responded html, and find flgas
 """
 def main():
+
+    #USERNAME = "1778409"
+    #PASSWORD = "ZUE3UDQE"
+    USERNAME = sys.argv[1]
+    PASSWORD = sys.argv[2]
+
+
+
     login()
     # not yet gathered all 5 flags
     while len(paths_tovisit) > 0 and len(secret_flags) < 5:
