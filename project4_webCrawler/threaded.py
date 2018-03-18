@@ -2,6 +2,7 @@
 import gzip
 import socket
 import sys
+import threading
 from HTMLParser import HTMLParser
 from urlparse import urlparse
 import cStringIO
@@ -70,20 +71,20 @@ class PageParser(HTMLParser):
         if "sessionid" in data:
             session_id = data.split("sessionid=")[1].split(";")[0]
 
-        # if self.secret_flag_found:
-        #     flag = data.split(" ")[1]
-        #     if flag not in secret_flags:
-        #         secret_flags.append(flag)
-        #         self.secret_flag_found = False
-        #         # print("appended text", file=secret_flags_file)
+        if self.secret_flag_found:
+            flag = data.split(" ")[1]
+            if flag not in secret_flags:
+                secret_flags.append(flag)
+                self.secret_flag_found = False
+                print(flag)
         #         with open('secert_flags', 'a') as secret_flags_file:
         #             secret_flags_file.write(str(flag) + '\n')
         # found a new flag, print it TODO check length?
-        if 'FLAG:' in data: # FLAG: 64-characters-of-random-alphanumerics
-            flag = data.split(" ")[1] #flag = data.split('FLAG:')[1].split('</h2>')[0]
-            secret_flags.add(flag)
-            print(flag)
-            print('Flag length: %d' % len(flag))
+        # if 'FLAG:' in data: # FLAG: 64-characters-of-random-alphanumerics
+        #     flag = data.split(" ")[1] #flag = data.split('FLAG:')[1].split('</h2>')[0]
+        #     secret_flags.add(flag)
+        #     print(flag)
+        #     print('Flag length: %d' % len(flag))
 
 
 # parser = PageParser()
@@ -306,6 +307,24 @@ def crawl_webpage(response):
     parser.feed(response)
 
 
+def crawl_path():
+    while len(paths_tovisit) > 0 and len(secret_flags) < 5:
+        # crawl all links found
+        for cur_path in paths_tovisit.keys():
+            print(cur_path)
+            # found all flags
+            if len(secret_flags) >= 5:
+                break
+            # if the current url hasn't been visited yet, then crawl it
+            if paths_tovisit[cur_path] == False:
+                # print("traversing: %s" % cur_path)
+                # GET and crawl webpage
+                response = cookie_GET(cur_path)
+                status_code = handle_http_status_codes(response, cur_path)
+                if status_code == '200':
+                    crawl_webpage(response)
+                    # add path to list of path already visited
+                    # paths_tovisit[cur_path] = True
 
 """
 TODO chunks:
@@ -328,24 +347,9 @@ def main():
     # login into fakebook
     login(full_login_path)
 
-    while len(paths_tovisit) > 0 and len(secret_flags) < 5:
-        # crawl all links found
-        for cur_path in paths_tovisit.keys():
-            print(cur_path)
-            # found all flags
-            if len(secret_flags) >= 5:
-                break
-
-            # if the current url hasn't been visited yet, then crawl it
-            if paths_tovisit[cur_path] == False:
-                # print("traversing: %s" % cur_path)
-                # GET and crawl webpage
-                response = cookie_GET(cur_path)
-                status_code = handle_http_status_codes(response, cur_path)
-                if status_code == '200':
-                    crawl_webpage(response)
-                    # add path to list of path already visited
-                    #paths_tovisit[cur_path] = True
+    #for x in range(10):
+    #    threading.Thread(target=crawl_path).start()
+    crawl_path()
 
     # exit gracefully when found all flags
     exit(0)
