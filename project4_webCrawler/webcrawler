@@ -22,10 +22,7 @@ HTTP_VERSION = "HTTP/1.1"
 PORT = 80
 HOST_PORT = (HOST, PORT)
 
-hundred_count = 0
-path_map = {}
 paths_tovisit = {}
-num_visit = {}
 secret_flags = []
 
 csrf = ''
@@ -34,9 +31,10 @@ session_id = ''
 class PageParser(HTMLParser):
     def __init__(self):
         HTMLParser.__init__(self)
+        self.secret_flag_found = False
 
     def handle_starttag(self, tag, attrs):
-        global paths_tovisit, secret_flags, path_map, hundred_count
+        global paths_visited, paths_tovisit, secret_flags
         # find links in the page
         if tag == 'a':
             for attr, val in attrs:
@@ -45,22 +43,20 @@ class PageParser(HTMLParser):
                     # doesn't exist in tovisit list already, and it's valid
                     val_path = urlparse(val).path
                     #SP: ask about this
-                    if val_path not in set(paths_tovisit) and val.startswith('/fakebook'):
+                    if val_path not in paths_tovisit and val.startswith('/fakebook'):
                         #print("found: %s" % val_path)
-                        add_path(val_path)
-                        #print("add a new valid url to visit: %s" % val_path)
-        
-        
+                        paths_tovisit[val_path] = False
+                        #print("add a new valid url to visit: %s" % val_path) 
 
 
     def handle_endtag(self, tag):
-        global paths_tovisit
+        global paths_visited, paths_tovisit
         #print("end tag: " + str(tag))
         if tag == "html":
             pass
 
     def handle_data(self, data):
-        global secret_flags, csrf, session_id
+        global paths_visited, paths_tovisit, secret_flags, csrf, session_id
         #print("Data: " + data)
         if "csrftoken" in data:
             csrf = data.split("csrftoken=")[1].split(";")[0]
@@ -73,24 +69,6 @@ class PageParser(HTMLParser):
             print(flag)
             print("FLAG #" + str(len(secret_flags)))
 
-
-def add_path(val_path):
-    global paths_tovisit, hundred_count, path_map
-    paths_tovisit[val_path] = False
-    pathList = []
-    try:
-        pathList = path_map[str(hundred_count)]
-    except:
-        pathList.append(val_path)
-        path_map[str(hundred_count)] = pathList
-    if len(pathList) < 100: 
-        pathList.append(val_path)
-        path_map[str(hundred_count)] = pathList
-    elif len(pathList) == 100:
-        hundred_count+=1
-        pathList = []
-        pathList.append(val_path)
-        path_map[str(hundred_count)] = pathList
 """
 receive HTTP responses using the socket
 """
@@ -107,8 +85,8 @@ def recv_response(sock, timeout=1/100):
             data_buffer+=data
         except:
             break
-
-    sock.close()
+            #error 10035 is no data available, it is non-fatal
+            #if errorCode != 10035:
     return data_buffer
 
     
@@ -116,12 +94,12 @@ def recv_response(sock, timeout=1/100):
 def login_GET():
     global full_login_path, HTTP_VERSION, HOST, HOST_PORT
 
-    request = request = request = '''\
+    request = '''\
 GET %s %s
 Host: %s
 Accept-Encoding: gzip
 
-''' % (full_login_path, HTTP_VERSION, HOST)
+'''  % (full_login_path, HTTP_VERSION, HOST)
     #sock.sendall(request)
     #print("============================LOGIN REQUEST============================")
     #print(request)
@@ -221,16 +199,14 @@ def crawl_webpage(response):
     except:
         print(response)
     parser.feed(response)
-    # csrf token and session id should be updated
-    #print '==========================token and session======================'
-    #print csrf
-    #print session_id
 
 def handle_http_status_codes(response, path):
-    status_code = ''
+    status_code = ""
     try:
         status_code = response.split(' ')[1]
     except:
+        print(path)
+        print(response)
         status_code = '500'
     #print(str(status_code))
     if status_code == '200':
@@ -241,13 +217,12 @@ def handle_http_status_codes(response, path):
         #response = cookie_GET(new_path)
         #crawl from here?
         if new_path not in paths_tovisit:
-            add_path(new_path)
+            paths_tovisit[new_path] = False
         paths_tovisit[path] = True
         # TODO make get (cookie) request again
         # TODO remove url from tovisit, add to visited
     if status_code == '403' or status_code == '404':
         paths_tovisit[path] = True
-
     if status_code == '500':
         response = cookie_GET(path)
         handle_http_status_codes(response, path)
@@ -257,9 +232,9 @@ def handle_http_status_codes(response, path):
 def main():
     
     login()
-    counter = 0
     while len(secret_flags) < 5:
-        pathList = path_map[str(counter)]
+        pathList = list(paths_tovisit.keys())
+        #print(str(len(pathList)))
         for path in pathList:
             if len(secret_flags) >= 5:
                 break
@@ -269,8 +244,6 @@ def main():
                 if status_code == '200':
                     crawl_webpage(response)
                     paths_tovisit[path] = True
-        counter+=1
-
     sys.exit(0)
 
 
