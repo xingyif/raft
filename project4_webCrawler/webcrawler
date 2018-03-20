@@ -26,6 +26,7 @@ paths_visited = set()
 paths_tovisit = set()
 secret_flags = set()
 
+logged_in = False
 csrf = ''
 session_id = ''
 
@@ -43,8 +44,8 @@ class PageParser(HTMLParser):
                     # only add to tovisit list if the url has not been visited
                     # doesn't exist in tovisit list already, and it's valid
                     val_path = urlparse(val).path
-                    #SP: ask about this
-                    if val_path not in paths_visited and val.startswith('/fakebook'):
+                    #TODO: maybe change this back to if val_path not in paths_visited
+                    if val.startswith('/fakebook'):
                         #print("found: %s" % val_path)
                         paths_tovisit.add(val_path)
                         #print("add a new valid url to visit: %s" % val_path) 
@@ -59,10 +60,9 @@ class PageParser(HTMLParser):
     def handle_data(self, data):
         global paths_visited, paths_tovisit, secret_flags, csrf, session_id
         #print("Data: " + data)
-        if "csrftoken" in data:
+        if not logged_in and "csrftoken" in data:
             csrf = data.split("csrftoken=")[1].split(";")[0]
-
-        if "sessionid" in data:
+        if not logged_in and "sessionid" in data:
             session_id = data.split("sessionid=")[1].split(";")[0]
         if "FLAG:" in data:
             flag = data.split("FLAG:")[1].split("</h2>")[0]
@@ -185,6 +185,7 @@ def login():
     post_response = login_POST(LOGIN_PATH)
     crawl_webpage(post_response)
     handle_http_status_codes(post_response, LOGIN_PATH)
+    logged_in = True
 
 def crawl_webpage(response):
     global csrf, session_id
