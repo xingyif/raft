@@ -22,7 +22,10 @@ HTTP_VERSION = "HTTP/1.1"
 PORT = 80
 HOST_PORT = (HOST, PORT)
 
+hundred_count = 0
+path_map = {}
 paths_tovisit = {}
+num_visit = {}
 secret_flags = []
 
 csrf = ''
@@ -33,7 +36,7 @@ class PageParser(HTMLParser):
         HTMLParser.__init__(self)
 
     def handle_starttag(self, tag, attrs):
-        global paths_tovisit, secret_flags
+        global paths_tovisit, secret_flags, path_map, hundred_count
         # find links in the page
         if tag == 'a':
             for attr, val in attrs:
@@ -44,7 +47,7 @@ class PageParser(HTMLParser):
                     #SP: ask about this
                     if val_path not in set(paths_tovisit) and val.startswith('/fakebook'):
                         #print("found: %s" % val_path)
-                        paths_tovisit[val_path] = False
+                        add_path(val_path)
                         #print("add a new valid url to visit: %s" % val_path)
         
         
@@ -70,6 +73,24 @@ class PageParser(HTMLParser):
             print(flag)
             print("FLAG #" + str(len(secret_flags)))
 
+
+def add_path(val_path):
+    global paths_tovisit, hundred_count, path_map
+    paths_tovisit[val_path] = False
+    pathList = []
+    try:
+        pathList = path_map[str(hundred_count)]
+    except:
+        pathList.append(val_path)
+        path_map[str(hundred_count)] = pathList
+    if len(pathList) < 100: 
+        pathList.append(val_path)
+        path_map[str(hundred_count)] = pathList
+    elif len(pathList) == 100:
+        hundred_count+=1
+        pathList = []
+        pathList.append(val_path)
+        path_map[str(hundred_count)] = pathList
 """
 receive HTTP responses using the socket
 """
@@ -220,7 +241,7 @@ def handle_http_status_codes(response, path):
         #response = cookie_GET(new_path)
         #crawl from here?
         if new_path not in paths_tovisit:
-            paths_tovisit[new_path] = False
+            add_path(new_path)
         paths_tovisit[path] = True
         # TODO make get (cookie) request again
         # TODO remove url from tovisit, add to visited
@@ -236,9 +257,10 @@ def handle_http_status_codes(response, path):
 def main():
     
     login()
-    while True:
-        iterate = paths_tovisit.copy()
-        for path in iterate:
+    counter = 0
+    while len(secret_flags) < 5:
+        pathList = path_map[str(counter)]
+        for path in pathList:
             if len(secret_flags) >= 5:
                 break
             if not paths_tovisit[path]:
@@ -247,7 +269,7 @@ def main():
                 if status_code == '200':
                     crawl_webpage(response)
                     paths_tovisit[path] = True
-        break
+        counter+=1
 
     sys.exit(0)
 
