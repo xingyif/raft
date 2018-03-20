@@ -22,9 +22,9 @@ HTTP_VERSION = "HTTP/1.1"
 PORT = 80
 HOST_PORT = (HOST, PORT)
 
-paths_visited = []
-paths_tovisit = []
-secret_flags = []
+paths_visited = set()
+paths_tovisit = set()
+secret_flags = set()
 
 csrf = ''
 session_id = ''
@@ -44,9 +44,9 @@ class PageParser(HTMLParser):
                     # doesn't exist in tovisit list already, and it's valid
                     val_path = urlparse(val).path
                     #SP: ask about this
-                    if val_path not in paths_visited and val_path not in paths_tovisit and val.startswith('/fakebook'):
+                    if val_path not in paths_visited and val.startswith('/fakebook'):
                         #print("found: %s" % val_path)
-                        paths_tovisit.append(val_path)
+                        paths_tovisit.add(val_path)
                         #print("add a new valid url to visit: %s" % val_path) 
 
 
@@ -66,7 +66,7 @@ class PageParser(HTMLParser):
             session_id = data.split("sessionid=")[1].split(";")[0]
         if "FLAG:" in data:
             flag = data.split("FLAG:")[1].split("</h2>")[0]
-            secret_flags.append(flag)
+            secret_flags.add(flag)
             print(flag)
             print("FLAG #" + str(len(secret_flags)))
 
@@ -217,10 +217,9 @@ def handle_http_status_codes(response, path):
         #print ("NEW LOCATION: " + new_path)
         #response = cookie_GET(new_path)
         #crawl from here?
-        if new_path not in paths_tovisit and new_path not in paths_visited:
-            paths_tovisit.append(new_path)
-        if path not in paths_visited:
-            paths_visited.append(path)
+        if new_path not in paths_visited:
+            paths_tovisit.add(new_path)
+        paths_visited.add(path)
         if path in paths_tovisit:
             paths_tovisit.remove(path)
         # TODO make get (cookie) request again
@@ -228,8 +227,7 @@ def handle_http_status_codes(response, path):
     if status_code == '403' or status_code == '404':
         if path in paths_tovisit:
             paths_tovisit.remove(path)
-        if path not in paths_visited:
-            paths_visited.append(path)
+        paths_visited.add(path)
 
     if status_code == '500':
         response = cookie_GET(path)
@@ -251,7 +249,7 @@ def main():
             status_code = handle_http_status_codes(response, path)
             if status_code == '200':
                 crawl_webpage(response)
-                paths_visited.append(path)
+                paths_visited.add(path)
                 paths_tovisit.remove(path)
     sys.exit(0)
 
