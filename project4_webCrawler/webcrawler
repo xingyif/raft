@@ -98,8 +98,7 @@ def login_GET():
     request = request = request = '''\
 GET %s %s
 Host: %s
-Accept-Encoding: gzip, deflate
-Connection: keep-alive
+Accept-Encoding: gzip
 
 ''' % (full_login_path, HTTP_VERSION, HOST)
     #sock.sendall(request)
@@ -127,8 +126,7 @@ def cookie_GET(path):
     request = '''\
 GET %s %s
 Host: %s
-Accept-Encoding: gzip, deflate
-Connection: keep-alive
+Accept-Encoding: gzip
 Cookie: csrftoken=%s; sessionid=%s
 
 ''' % (path, HTTP_VERSION, HOST, csrf, session_id)
@@ -157,8 +155,7 @@ def login_POST(path):
     request = '''\
 POST %s %s
 Host: %s
-Accept-Encoding: gzip, deflate
-Connection: keep-alive
+Accept-Encoding: gzip
 Content-Length: %d
 Cookie: csrftoken=%s; sessionid=%s
 
@@ -250,6 +247,7 @@ def main():
                 if status_code == '200':
                     crawl_webpage(response)
                     paths_tovisit[path] = True
+        break
 
     sys.exit(0)
 
