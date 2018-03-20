@@ -22,7 +22,8 @@ HTTP_VERSION = "HTTP/1.1"
 PORT = 80
 HOST_PORT = (HOST, PORT)
 
-paths_tovisit = {}
+paths_visited = []
+paths_tovisit = []
 secret_flags = []
 
 csrf = ''
@@ -43,9 +44,9 @@ class PageParser(HTMLParser):
                     # doesn't exist in tovisit list already, and it's valid
                     val_path = urlparse(val).path
                     #SP: ask about this
-                    if val_path not in paths_tovisit and val.startswith('/fakebook'):
+                    if val_path not in paths_visited and val_path not in paths_tovisit and val.startswith('/fakebook'):
                         #print("found: %s" % val_path)
-                        paths_tovisit[val_path] = False
+                        paths_tovisit.append(val_path)
                         #print("add a new valid url to visit: %s" % val_path) 
 
 
@@ -216,13 +217,20 @@ def handle_http_status_codes(response, path):
         #print ("NEW LOCATION: " + new_path)
         #response = cookie_GET(new_path)
         #crawl from here?
-        if new_path not in paths_tovisit:
-            paths_tovisit[new_path] = False
-        paths_tovisit[path] = True
+        if new_path not in paths_tovisit and new_path not in paths_visited:
+            paths_tovisit.append(new_path)
+        if path not in paths_visited:
+            paths_visited.append(path)
+        if path in paths_tovisit:
+            paths_tovisit.remove(path)
         # TODO make get (cookie) request again
         # TODO remove url from tovisit, add to visited
     if status_code == '403' or status_code == '404':
-        paths_tovisit[path] = True
+        if path in paths_tovisit:
+            paths_tovisit.remove(path)
+        if path not in paths_visited:
+            paths_visited.append(path)
+
     if status_code == '500':
         response = cookie_GET(path)
         handle_http_status_codes(response, path)
@@ -233,17 +241,18 @@ def main():
     
     login()
     while len(secret_flags) < 5:
-        pathList = list(paths_tovisit.keys())
+        print(str(len(paths_tovisit)))
+        pathList = list(paths_tovisit)
         #print(str(len(pathList)))
         for path in pathList:
             if len(secret_flags) >= 5:
                 break
-            if not paths_tovisit[path]:
-                response = cookie_GET(path)
-                status_code = handle_http_status_codes(response, path)
-                if status_code == '200':
-                    crawl_webpage(response)
-                    paths_tovisit[path] = True
+            response = cookie_GET(path)
+            status_code = handle_http_status_codes(response, path)
+            if status_code == '200':
+                crawl_webpage(response)
+                paths_visited.append(path)
+                paths_tovisit.remove(path)
     sys.exit(0)
 
 
