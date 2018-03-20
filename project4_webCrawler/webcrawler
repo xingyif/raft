@@ -5,6 +5,7 @@ import sys
 from urlparse import urlparse
 from HTMLParser import HTMLParser
 import time
+import zlib
 
 USERNAME = "1622045"
 PASSWORD = "14YURN58"
@@ -21,8 +22,7 @@ HTTP_VERSION = "HTTP/1.1"
 PORT = 80
 HOST_PORT = (HOST, PORT)
 
-paths_visited = []
-paths_tovisit = []
+paths_tovisit = {}
 secret_flags = []
 
 csrf = ''
@@ -31,10 +31,9 @@ session_id = ''
 class PageParser(HTMLParser):
     def __init__(self):
         HTMLParser.__init__(self)
-        self.secret_flag_found = False
 
     def handle_starttag(self, tag, attrs):
-        global paths_visited, paths_tovisit, secret_flags
+        global paths_tovisit, secret_flags
         # find links in the page
         if tag == 'a':
             for attr, val in attrs:
@@ -43,26 +42,22 @@ class PageParser(HTMLParser):
                     # doesn't exist in tovisit list already, and it's valid
                     val_path = urlparse(val).path
                     #SP: ask about this
-                    if val_path not in paths_visited and val_path not in paths_tovisit and val.startswith('/fakebook'):
+                    if val_path not in set(paths_tovisit) and val.startswith('/fakebook'):
                         #print("found: %s" % val_path)
-                        paths_tovisit.append(val_path)
+                        paths_tovisit[val_path] = False
                         #print("add a new valid url to visit: %s" % val_path)
-        # find secret flag
-        if tag == 'h2':
-            for attr, val in attrs:
-                if attr == 'class' and val == 'secret_flag':
-                    self.secret_flag_found = True
+        
         
 
 
     def handle_endtag(self, tag):
-        global paths_visited, paths_tovisit
+        global paths_tovisit
         #print("end tag: " + str(tag))
         if tag == "html":
             pass
 
     def handle_data(self, data):
-        global paths_visited, paths_tovisit, secret_flags, csrf, session_id
+        global secret_flags, csrf, session_id
         #print("Data: " + data)
         if "csrftoken" in data:
             csrf = data.split("csrftoken=")[1].split(";")[0]
@@ -91,14 +86,8 @@ def recv_response(sock, timeout=1/100):
             data_buffer+=data
         except:
             break
-            #error 10035 is no data available, it is non-fatal
-            #if errorCode != 10035:
-    if data:
-        pass
-        #print "last call received data:"
-    else:
-        pass
-        #print "last call didn't receive data"
+
+    sock.close()
     return data_buffer
 
     
@@ -106,7 +95,13 @@ def recv_response(sock, timeout=1/100):
 def login_GET():
     global full_login_path, HTTP_VERSION, HOST, HOST_PORT
 
-    request = "GET %s %s\nHost: %s\n\n" % (full_login_path, HTTP_VERSION, HOST)
+    request = request = request = '''\
+GET %s %s
+Host: %s
+Accept-Encoding: gzip, deflate
+Connection: keep-alive
+
+''' % (full_login_path, HTTP_VERSION, HOST)
     #sock.sendall(request)
     #print("============================LOGIN REQUEST============================")
     #print(request)
@@ -132,6 +127,8 @@ def cookie_GET(path):
     request = '''\
 GET %s %s
 Host: %s
+Accept-Encoding: gzip, deflate
+Connection: keep-alive
 Cookie: csrftoken=%s; sessionid=%s
 
 ''' % (path, HTTP_VERSION, HOST, csrf, session_id)
@@ -160,6 +157,8 @@ def login_POST(path):
     request = '''\
 POST %s %s
 Host: %s
+Accept-Encoding: gzip, deflate
+Connection: keep-alive
 Content-Length: %d
 Cookie: csrftoken=%s; sessionid=%s
 
@@ -194,6 +193,15 @@ def crawl_webpage(response):
     global csrf, session_id
 
     parser = PageParser()
+    message = []
+    compressed = ""
+    try:
+        message = response.split("\r\n\r\n")
+        compressed = message[1]
+        response = zlib.decompress(compressed, zlib.MAX_WBITS|32)
+        response = message[0] + response
+    except:
+        print(response)
     parser.feed(response)
     # csrf token and session id should be updated
     #print '==========================token and session======================'
@@ -201,13 +209,11 @@ def crawl_webpage(response):
     #print session_id
 
 def handle_http_status_codes(response, path):
-    status_code = ""
+    status_code = ''
     try:
         status_code = response.split(' ')[1]
     except:
-        print(path)
-        print(response)
-        return '404'
+        status_code = '500'
     #print(str(status_code))
     if status_code == '200':
         pass
@@ -216,19 +222,13 @@ def handle_http_status_codes(response, path):
         #print ("NEW LOCATION: " + new_path)
         #response = cookie_GET(new_path)
         #crawl from here?
-        if new_path not in paths_tovisit and new_path not in paths_visited:
-            paths_tovisit.append(new_path)
-        if path not in paths_visited:
-            paths_visited.append(path)
-        if path in paths_tovisit:
-            paths_tovisit.remove(path)
+        if new_path not in paths_tovisit:
+            paths_tovisit[new_path] = False
+        paths_tovisit[path] = True
         # TODO make get (cookie) request again
         # TODO remove url from tovisit, add to visited
     if status_code == '403' or status_code == '404':
-        if path in paths_tovisit:
-            paths_tovisit.remove(path)
-        if path not in paths_visited:
-            paths_visited.append(path)
+        paths_tovisit[path] = True
 
     if status_code == '500':
         response = cookie_GET(path)
@@ -239,15 +239,18 @@ def handle_http_status_codes(response, path):
 def main():
     
     login()
-    while len(paths_tovisit) > 0 and len(secret_flags) < 5:
-        for path in paths_tovisit:
-            if path not in paths_visited:
+    while True:
+        iterate = paths_tovisit.copy()
+        for path in iterate:
+            if len(secret_flags) >= 5:
+                break
+            if not paths_tovisit[path]:
                 response = cookie_GET(path)
                 status_code = handle_http_status_codes(response, path)
                 if status_code == '200':
                     crawl_webpage(response)
-                    paths_visited.append(path)
-                    paths_tovisit.remove(path)
+                    paths_tovisit[path] = True
+
     sys.exit(0)
 
 
