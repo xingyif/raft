@@ -85,21 +85,18 @@ receive HTTP responses using the socket
 @return full_message - the full response received from the socket
 """
 def recv_response(sock):
+    global HOST_PORT
+
     full_message = ''
-    sock.settimeout(.3)
     # to handle chunked responses
-    while True:
-        try:
-            chunk = sock.recv(9000)
-            # if received full response, then stop receiving
-            if not chunk:
-                break
-            # appen all chunks together
-            full_message += chunk
-        except:
-            break
+    try:
+        full_message = sock.recv(9000)
+        # appen all chunks together
+    except:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect(HOST_PORT)
+        recv_response(sock)
     sock.close()
-    #print(full_message)
     return full_message
 
 
