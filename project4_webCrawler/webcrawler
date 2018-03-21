@@ -100,6 +100,7 @@ def recv_response(sock):
             full_message += chunk
         except:
             break
+    # TODO sock.close() 
     return full_message
 
 
@@ -130,7 +131,7 @@ Accept-Encoding: gzip
         response = recv_response(sock)
         return response
     except socket.error as e:
-        #failed to create socket
+        # failed to create socket
         print('ERROR: failed to create socket!')
         exit(1)
 
@@ -230,7 +231,7 @@ def login(path):
         login(path)
     else:
         # if status_code is 404, etc, then abondon the path and exit the program
-        print"First GET failed, cannot find the given path, exit the program"
+        print("First GET failed, cannot find the given path, exit the program")
         exit(1)
 
     # POST with the session id and token
@@ -290,7 +291,7 @@ handle the http status code
 @return status_code - the status code of the HTTP response
 """
 def handle_http_status_codes(response, path):
-    status_code = ""
+    status_code = ''
     try:
         # parse for status_code
         status_code = response.split(' ')[1]
