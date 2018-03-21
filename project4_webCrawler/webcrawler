@@ -7,11 +7,11 @@ from HTMLParser import HTMLParser
 import time
 import zlib
 
-#our username and password
-USERNAME = ""
-PASSWORD = ""
+# username and password from input
+USERNAME = ''
+PASSWORD = ''
 
-#all the various paths we can get from parsing
+# all the various paths we can get from parsing
 fakebook_url = urlparse('http://fring.ccs.neu.edu/fakebook/')
 login_url = urlparse('http://fring.ccs.neu.edu/accounts/login/?next=/fakebook/')
 full_login_path = "/accounts/login/?next=/fakebook/"
@@ -21,19 +21,19 @@ FAKEBOOK_PATH = fakebook_url.path
 LOGIN_PATH = login_url.path
 HTTP_VERSION = "HTTP/1.1"
 
-#the port we're going to be using
+# the port of the server
 PORT = 80
 HOST_PORT = (HOST, PORT)
 
-#all the paths we've visited
+# all the paths that are already visited
 paths_visited = set()
-#all the paths we need to visit
+# all the paths that needed to be visited
 paths_tovisit = set()
-#all the secret flags
+# all the secret flags gathered
 secret_flags = set()
-#indicates whether or not we're logged in
+# indicates whether the program is logged in to fakebook
 logged_in = False
-#our csrf token and session_id
+# the secret csrf token and session_id crawled from the initial page
 csrf = ''
 session_id = ''
 

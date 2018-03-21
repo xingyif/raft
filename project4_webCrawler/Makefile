@@ -1,2 +1,3 @@
-default:
-	chmod u+x webcrawler
+install:
+			chmod u+x webcrawler
+.PHONY: install
