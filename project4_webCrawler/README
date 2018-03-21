@@ -11,30 +11,40 @@ crawling the webpage.
 
 - Parsing for Links and Flags:
 
-Each time we get a response, we parse it for hyperlinks. We add each link to our set of links to visit, provided that we haven't already visited it. We also check each response for a secret flag. If we get a flag, we add it to our secret_flags set. As we iterate through all the links, we check on each iteration whether or not we've gathered all the flags. If we have, we gracefully exit the program.
+For each response, parse it for hyperlinks. 
+Add each path to the set of paths to visit, provided that the path hasn't already been visited it. 
+Check each response for a secret flag. If a flag is found in the webpage, add it to the secret_flags set. 
+While iterating through all the paths, check each whether or not all flags are gathered.
+If we all flags are gathered, gracefully exit the program.
 
 - Status Codes:
 
-For each response, we also check the status code of each response:
-	200 - We accept the response and move on.
-    301/302 - We add the new url we get from the location header to our hyperlinks.
-    403/404 - We consider the link "visited" and move on.
-    500 - We try to get the response again, using the same path.
+For each HTTP response, check the status code:
+	200 - Accept the response and move on.
+    301/302 - Add the new url we get from the location header to our hyperlinks.
+    403/404 - Abondon the link by considering the link "visited" and move on.
+    500 - Retry to get the response again, using the same path.
+
 
 **Challenges:**
-Performance was our biggest challenge. We tried to simplify our design and look for any places
-where performance could be affected by linear time operations, and tried to make them constant 
-with sets (set lookup time in python is constant). Sets guaranteed we wouldn't be looking over 
-duplicate pages. We also implemented gzip encoding to help with performance, using zlib to 
-decompress encoded content.
+Performance was the biggest challenge. We tried to simplify our design and look for any places
+where performance could be affected by linear time operations. We utilized data structures to
+make sure that adding and retrieving values are constant times. We decided to use set instead of list
+(set lookup time in python is constant). Sets also guaranteed we wouldn't be looking over 
+duplicate pages. In addition, we implemented gzip encoding to compress the HTTP response so that
+sending requests and receving responses times are shorter. To decompress the encoded message body, we used zlib.
 
-We also had trouble dealing with chunked data. To deal with that, we would continuously recieve from the socket and add the received data to a buffer until we could no longer receive any more data.
+Being able to recognize chunks and maintain response integrity was also a challenge.
+We have a specific receive from socket function that ensures that the response contains the full message
+before closing the socket. We continiously receive data and add the received data to a buffer 
+until no more data can be received.
 
 **Testing:**
-We made sure to print urls that weren't valid while going through to see that we weren't going
-off-site. We consistently checked for exceptions where they could reasonably be thrown and made
-sure we weren't getting stuck in loops. We timed out our sockets properly and made sure to handle
-each status code appropriately.
+Printed HTTP request and responses to make sure the request patterns/protocols are correct,
+and to make sure that the responses are the expected ones.
+Printed paths that weren't valid to ensure that the program is crawling valid webpages.
+Used Pycharm debugger to debug exceptions thrown. Compare the printed results and the paths in the sets to ensure
+that there is no loops. Timed out sockets properly and handled each status codes and exceptions appropriately.
 
 **Contributions:**
-We pair-programmed. 
+We pair-programmed for the whole project, and therefore each team member has equally contributed to the project. 
