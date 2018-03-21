@@ -32,12 +32,13 @@ where performance could be affected by linear time operations. We utilized data 
 make sure that adding and retrieving values are constant times. We decided to use set instead of list
 (set lookup time in python is constant). Sets also guaranteed we wouldn't be looking over 
 duplicate pages. In addition, we implemented gzip encoding to compress the HTTP response so that
-sending requests and receving responses times are shorter. To decompress the encoded message body, we used zlib.
+sending requests and receiving responses times are shorter. To decompress the encoded message body, we used zlib.
 
 Being able to recognize chunks and maintain response integrity was also a challenge.
-We have a specific receive from socket function that ensures that the response contains the full message
-before closing the socket. We continiously receive data and add the received data to a buffer 
-until no more data can be received.
+To improve the performance and preserves message integrity, the HTTP request specifically requests to compressed
+the message body. To decompress the message body, the program separated the message header, which is not compressed,
+from the message body, which needs to be decompressed. Using zlib, the message body is decompressed. The program then
+adds the decompressed message body to the message header.
 
 **Testing:**
 Printed HTTP request and responses to make sure the request patterns/protocols are correct,
