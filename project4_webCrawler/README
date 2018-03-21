@@ -1,0 +1,40 @@
+**High-level Approach:**
+
+- Initial Login and Setup:
+
+At the beginning of the program, the crawler takes in username and password as the user input 
+when executing the program. Then the crawler constructs a HTTP GET and send to the server using 
+a socket to receive the initial webpage. After receiving the initial webpage, the crawler 
+retrieves the csrftoken and the session id hidden in thet GET response. Constructs a POST request 
+with the token and the session id to login to fakebook. If the login is successful, the we start 
+crawling the webpage.
+
+- Parsing for Links and Flags:
+
+Each time we get a response, we parse it for hyperlinks. We add each link to our set of links to visit, provided that we haven't already visited it. We also check each response for a secret flag. If we get a flag, we add it to our secret_flags set. As we iterate through all the links, we check on each iteration whether or not we've gathered all the flags. If we have, we gracefully exit the program.
+
+- Status Codes:
+
+For each response, we also check the status code of each response:
+	200 - We accept the response and move on.
+    301/302 - We add the new url we get from the location header to our hyperlinks.
+    403/404 - We consider the link "visited" and move on.
+    500 - We try to get the response again, using the same path.
+
+**Challenges:**
+Performance was our biggest challenge. We tried to simplify our design and look for any places
+where performance could be affected by linear time operations, and tried to make them constant 
+with sets (set lookup time in python is constant). Sets guaranteed we wouldn't be looking over 
+duplicate pages. We also implemented gzip encoding to help with performance, using zlib to 
+decompress encoded content.
+
+We also had trouble dealing with chunked data. To deal with that, we would continuously recieve from the socket and add the received data to a buffer until we could no longer receive any more data.
+
+**Testing:**
+We made sure to print urls that weren't valid while going through to see that we weren't going
+off-site. We consistently checked for exceptions where they could reasonably be thrown and made
+sure we weren't getting stuck in loops. We timed out our sockets properly and made sure to handle
+each status code appropriately.
+
+**Contributions:**
+We pair-programmed. 
