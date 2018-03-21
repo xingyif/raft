@@ -76,7 +76,7 @@ class PageParser(HTMLParser):
             session_id = data.split("sessionid=")[1].split(";")[0]
         if "FLAG:" in data:
             # parse for the flag and add to list
-            flag = data.split("FLAG:")[1].split("</h2>")[0]
+            flag = data.split("FLAG: ")[1].split("</h2>")[0]
             secret_flags.add(flag)
             print(flag)
 
@@ -348,7 +348,6 @@ def main():
         #iterate over pathList so we don't modify it while going over
         pathList = list(paths_tovisit)
         for path in pathList:
-            print(path)
             # found all the flags, gracefully quit
             if len(secret_flags) >= 5:
                 break
