@@ -35,10 +35,9 @@ logged_in = False
 # the secret csrf token and session_id crawled from the initial page
 csrf = ''
 session_id = ''
+# the initial socket that sends and receives HTTP requests and responses
+sock = None
 
-
-sock = None #socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-# sock.connect(HOST_PORT)
 
 
 class PageParser(HTMLParser):
@@ -118,7 +117,7 @@ Accept-Encoding: gzip
 '''  % (path, HTTP_VERSION, HOST)
     try:
         #create a new socket and send the HTTP request
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # connect to the host and the port
         sock.connect(HOST_PORT)
         # send the request to the socket
