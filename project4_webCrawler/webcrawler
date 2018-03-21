@@ -94,7 +94,6 @@ def recv_response():
         # Connection reset by peer, reopen socket
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect(HOST_PORT)
-        print("reopen socket")
         recv_response()
     return full_message
 
