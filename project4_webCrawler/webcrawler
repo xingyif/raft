@@ -2,10 +2,9 @@
 
 import socket
 import sys
-from urlparse import urlparse
-from HTMLParser import HTMLParser
-import time
 import zlib
+from HTMLParser import HTMLParser
+from urlparse import urlparse
 
 # username and password from input
 USERNAME = ''
@@ -15,7 +14,7 @@ PASSWORD = ''
 fakebook_url = urlparse('http://fring.ccs.neu.edu/fakebook/')
 login_url = urlparse('http://fring.ccs.neu.edu/accounts/login/?next=/fakebook/')
 full_login_path = "/accounts/login/?next=/fakebook/"
-HOST = fakebook_url.netloc 
+HOST = fakebook_url.netloc
 # fakebook_url.netloc fring.ccs.neu.edu
 FAKEBOOK_PATH = fakebook_url.path
 LOGIN_PATH = login_url.path
@@ -76,7 +75,7 @@ class PageParser(HTMLParser):
             session_id = data.split("sessionid=")[1].split(";")[0]
         if "FLAG:" in data:
             # parse for the flag and add to list
-            flag = data.split("FLAG:")[1].split("</h2>")[0]
+            flag = data.split(" ")[1]
             secret_flags.add(flag)
             print(flag)
 
@@ -86,7 +85,6 @@ receive HTTP responses using the socket
 @return full_message - the full response received from the socket
 """
 def recv_response(sock):
-    chunk = ''
     full_message = ''
     sock.settimeout(.3)
     # to handle chunked responses
@@ -100,7 +98,8 @@ def recv_response(sock):
             full_message += chunk
         except:
             break
-    # TODO sock.close() 
+    sock.close()
+    #print(full_message)
     return full_message
 
 
@@ -109,7 +108,7 @@ login to fakebook with the token and session id
 @param path - the given login path
 @return response - the HTTP GET response
 
-""" 
+"""
 def login_GET(path):
     global HTTP_VERSION, HOST, HOST_PORT
 
@@ -212,7 +211,7 @@ update cookie
 @param path - the given login path
 """
 def login(path):
-    global HOST_PORT, LOGIN_PATH
+    global HOST_PORT, LOGIN_PATH, logged_in
 
     # GET the initial fakebook login page
     get_response = login_GET(path)
@@ -224,7 +223,8 @@ def login(path):
     # if the status_code is redirect, then GET using the new path
     elif get_status_code == '302':
         # retry using the redirected path
-        login(paths_tovisit[0])
+        # login(paths_tovisit[0])
+        login(paths_tovisit.pop())
     # if the status_code is 500, then retry login using the same path
     elif get_status_code == '500':
         # retry using the same path
@@ -348,7 +348,6 @@ def main():
         #iterate over pathList so we don't modify it while going over
         pathList = list(paths_tovisit)
         for path in pathList:
-            print(path)
             # found all the flags, gracefully quit
             if len(secret_flags) >= 5:
                 break
