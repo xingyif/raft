@@ -138,7 +138,7 @@ HTTP GET with cookie, after logged in
 def cookie_GET(path):
     global HTTP_VERSION, HOST, csrf, session_id, HOST_PORT, sock
 
-    #including the sessionid in request so we can access the logged in info
+    # including the sessionid in request so we can access the logged in info
     request = '''\
 GET %s %s
 Host: %s
@@ -148,7 +148,7 @@ Cookie: csrftoken=%s; sessionid=%s
 ''' % (path, HTTP_VERSION, HOST, csrf, session_id)
 
     try:
-        #create a new socket and send the HTTP request with the cookie
+        # create a new socket and send the HTTP request with the cookie
         sock.close()
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect(HOST_PORT)
@@ -157,7 +157,7 @@ Cookie: csrftoken=%s; sessionid=%s
         decompressed_response = decompress_response(response)
         return decompressed_response
     except socket.error as e:
-        #failed to create socket
+        # failed to create socket
         print("ERROR: failed to create socket in GET with a cookie! %s" % e)
         exit(1)
 
@@ -174,7 +174,7 @@ def login_POST(path):
     data = "username=%s&password=%s&csrfmiddlewaretoken=%s&next=%%2Ffakebook%%2F" % (USERNAME, PASSWORD, csrf)
 
     #the information we're using to login
-    #content-length is necessary for framing
+    # content-length is necessary for framing
     request = '''\
 POST %s %s
 Host: %s
@@ -186,7 +186,7 @@ Cookie: csrftoken=%s; sessionid=%s
 ''' % (path, HTTP_VERSION, HOST, len(data), csrf, session_id, data)
 
     try:
-        #send the post request
+        # send the post request
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # connect to the host and the port
         sock.connect(HOST_PORT)
@@ -197,7 +197,7 @@ Cookie: csrftoken=%s; sessionid=%s
         decompressed_response = decompress_response(response)
         return decompressed_response
     except socket.error as e:
-        #failed to create socket
+        # failed to create socket
         print("ERROR: failed to create socket when POST! %s" % e)
         exit(1)
 
