@@ -1,0 +1,10 @@
+{
+    "lifetime": 30,
+    "replicas": 5,
+    "requests": 500,
+    "mix" : 0.2,
+    "events" : [{"type": "part_hard", "time": 5},
+	        {"type": "part_end", "time": 10},
+		{"type": "part_hard", "time": 15},
+	        {"type": "part_end", "time": 20}]
+}

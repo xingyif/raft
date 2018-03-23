@@ -1,0 +1,42 @@
+#!/usr/bin/env python
+
+import sys, socket, select, time, json, random
+
+# Your ID number
+my_id = sys.argv[1]
+
+# The ID numbers of all the other replicas
+replica_ids = sys.argv[2:]
+
+# Connect to the network. All messages to/from other replicas and clients will
+# occur over this socket
+sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+sock.connect(my_id)
+
+last = 0
+
+while True:
+	ready = select.select([sock], [], [], 0.1)[0]
+	
+	if sock in ready:
+		msg_raw = sock.recv(32768)
+		
+		if len(msg_raw) == 0: continue
+		msg = json.loads(msg_raw)
+		
+		# For now, ignore get() and put() from clients
+		if msg['type'] in ['get', 'put']:
+                        pass
+		
+		# Handle noop messages. This may be removed from your final implementation
+		elif msg['type'] == 'noop':
+			print '%s received a NOOP from %s' % (msg['dst'], msg['src'])
+		
+	clock = time.time()
+	if clock-last > 2:
+		# Send a no-op message to a random peer every two seconds, just for fun
+		# You definitely want to remove this from your implementation
+		msg = {'src': my_id, 'dst': random.choice(replica_ids), 'leader': 'FFFF', 'type': 'noop'}
+		sock.send(json.dumps(msg))
+		print '%s sending a NOOP to %s' % (msg['src'], msg['dst'])
+		last = clock
