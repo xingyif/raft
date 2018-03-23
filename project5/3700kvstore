@@ -2,6 +2,48 @@
 
 import sys, socket, select, time, json, random
 
+#STATE:
+#last term server has seen 
+#current_term = 0
+#candidate_id that received vote in current term
+#voted_for = None
+#log entries; each entry contains command for state machine,
+#and term when entry was received by leader
+#log[] = list()
+#index of highest log entry known to be committed
+#commit_index = 0
+#index of highest log entry applied to state machine
+#last_applied = 0
+#index of the next log entry to send to that server
+#nextIndex[] = leader of last log index + 1
+#index of highest log entry known to be replicated
+#matchIndex[]
+
+#AppendEntries RPC
+#term = leader's term
+#so follower can redirect clients
+#leaderId = 
+#index of log entry immediately preceding new ones
+#prevLogIndex = 
+#term of prevLogIndex entry
+#prevLogTerm = 
+#log entries to store
+#(empty for heartbeat; may send more than one for efficiency) 
+#entries[]
+#leader's commitIndex
+#leaderCommit
+
+#RequestVote RPC
+#candidate's term
+#term
+#candidate's requesting vote
+#candidateId
+#index of candidate's last long entry
+#lastLogIndex
+#term of candidate's last log entry
+#lastLogTerm
+
+
 # Your ID number
 my_id = sys.argv[1]
 
