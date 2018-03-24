@@ -1,15 +1,51 @@
-High-level approach:
+**High-level Approach:**
 
-Challenges:
-Performance was our biggest challenge. We tried to simplify our design and look for any places
-where performance could be affected by linear time operations, and tried to make them constant 
-with dictionaries. We also tried to implementing gzip encoding but [result]
+- Initial Login and Setup:
 
-Testing:
-We made sure to print urls that weren't valid while going through to see that we weren't going
-off-site. We consistently checked for exceptions where they could reasonably be thrown and made
-sure we weren't getting stuck in loops. We timed out our sockets properly 
+At the beginning of the program, the crawler takes in username and password as the user input 
+when executing the program. Then the crawler constructs a HTTP GET and send to the server using 
+a socket to receive the initial webpage. After receiving the initial webpage, the crawler 
+retrieves the csrftoken and the session id hidden in thet GET response. Constructs a POST request 
+with the token and the session id to login to fakebook. If the login is successful, the we start 
+crawling the webpage.
+
+- Parsing for Links and Flags:
+
+For each response, parse it for hyperlinks. 
+Add each path to the set of paths to visit, provided that the path hasn't already been visited it. 
+Check each response for a secret flag. If a flag is found in the webpage, add it to the secret_flags set. 
+While iterating through all the paths, check each whether or not all flags are gathered.
+If we all flags are gathered, gracefully exit the program.
+
+- Status Codes:
+
+For each HTTP response, check the status code:
+	200 - Accept the response and move on.
+    301/302 - Add the new url we get from the location header to our hyperlinks.
+    403/404 - Abondon the link by considering the link "visited" and move on.
+    500 - Retry to get the response again, using the same path.
 
 
-Contributions:
-We pair-programmed. 
+**Challenges:**
+Performance was the biggest challenge. We tried to simplify our design and look for any places
+where performance could be affected by linear time operations. We utilized data structures to
+make sure that adding and retrieving values are constant times. We decided to use set instead of list
+(set lookup time in python is constant). Sets also guaranteed we wouldn't be looking over 
+duplicate pages. In addition, we implemented gzip encoding to compress the HTTP response so that
+sending requests and receiving responses times are shorter. To decompress the encoded message body, we used zlib.
+
+Being able to recognize chunks and maintain response integrity was also a challenge.
+To improve the performance and preserves message integrity, the HTTP request specifically requests to compressed
+the message body. To decompress the message body, the program separated the message header, which is not compressed,
+from the message body, which needs to be decompressed. Using zlib, the message body is decompressed. The program then
+adds the decompressed message body to the message header.
+
+**Testing:**
+Printed HTTP request and responses to make sure the request patterns/protocols are correct,
+and to make sure that the responses are the expected ones.
+Printed paths that weren't valid to ensure that the program is crawling valid webpages.
+Used Pycharm debugger to debug exceptions thrown. Compare the printed results and the paths in the sets to ensure
+that there is no loops. Timed out sockets properly and handled each status codes and exceptions appropriately.
+
+**Contributions:**
+We pair-programmed for the whole project, and therefore each team member has equally contributed to the project. 
