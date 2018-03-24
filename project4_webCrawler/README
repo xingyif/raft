@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 **High-level Approach:**
 
 - Initial Login and Setup:
@@ -49,3 +50,20 @@ that there is no loops. Timed out sockets properly and handled each status codes
 
 **Contributions:**
 We pair-programmed for the whole project, and therefore each team member has equally contributed to the project. 
+=======
+High-level approach:
+
+Challenges:
+Performance was our biggest challenge. We tried to simplify our design and look for any places
+where performance could be affected by linear time operations, and tried to make them constant 
+with dictionaries. We also tried to implementing gzip encoding but [result]
+
+Testing:
+We made sure to print urls that weren't valid while going through to see that we weren't going
+off-site. We consistently checked for exceptions where they could reasonably be thrown and made
+sure we weren't getting stuck in loops. We timed out our sockets properly 
+
+
+Contributions:
+We pair-programmed. 
+>>>>>>> ba1f36a3763c4963b19d448a78215e8917dfdc2a

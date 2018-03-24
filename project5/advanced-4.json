@@ -1,0 +1,14 @@
+{
+    "lifetime": 30,
+    "replicas": 5,
+    "requests": 1000,
+    "mix" : 0.2,
+    "drops" : 0.1,
+    "events" : [{"type": "part_hard", "time": 5},
+		{"type": "part_end", "time": 8},
+		{"type": "part_hard", "time": 12},
+		{"type": "part_end", "time": 15},
+		{"type": "part_hard", "time": 19},
+		{"type": "part_end", "time": 21},
+		{"type": "kill_leader", "time": 25}]
+}
