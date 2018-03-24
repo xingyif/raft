@@ -95,7 +95,6 @@ def recv_response():
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect(HOST_PORT)
         recv_response()
-    return full_message
 
 
 """
