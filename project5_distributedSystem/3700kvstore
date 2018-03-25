@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 
 import sys, socket, select, time, json, random
-
+import uuid
+from random import randint
 
 """
 Data Structures Needed:
@@ -61,11 +62,6 @@ messages to/from clients).
 #lastLogTerm
 
 
-# Your ID number
-my_id = sys.argv[1]
-
-# The ID numbers of all the other replicas
-replica_ids = sys.argv[2:]
 
 # Connect to the network. All messages to/from other replicas and clients will
 # occur over this socket
@@ -75,11 +71,89 @@ sock.connect(my_id)
 last = 0
 
 
+class StateMachine:
+
+    def __init__(self, id, other_server_ids):
+        self.id = id
+        self.leader_id = None
+        # leader, candidate, follower
+        self.state = 'follower'
+        # others can be different, if find larger, becomes a follower and update current_term; if find smaller, return error
+        self.current_term = 0
+        # last candidate ID I voted for
+        self.voted_for = None
+        self.commit_idx = 0
+        self.last_RPC_time = time.time()
+        # initial random, then record RTT in list, get mean + x miliseconds as timeout
+        self.election_timeout = randint(150, 300)
+        self.votes_count = 0
+        self.other_server_ids = other_server_ids
+        self.highest_entry_commited_index = 0
+        self.last_applied_log_entry = 0
+        #  entry contains command for state machine, and term when entry was received by leader, first index is 1
+        self.log = []
+        # machineId, next_idx_to_send
+        self.next_idx_to_send = self.init_next_idx_to_send()
+        self.highest_entries_replicated = self.init_highest_entries_replicated()
+
+
+    def init_next_idx_to_send(self):
+        if self.state == 'leader':
+            for server_id in self.other_server_ids:
+                self.next_idx_to_send[server_id] = len(self.log) + 1
+        return self.next_idx_to_send
+
+    def init_highest_entries_replicated(self):
+        if self.state == 'leader':
+            for server_id in self.other_server_ids:
+                self.highest_entries_replicated[server_id] = 0
+        return self.highest_entries_replicated
+
+    """
+    Becomes a candidate, increments current_term, and votes for itself, send vote request to other servers
+    """
+    def become_candidate(self):
+        cur_time = time.time()
+        # election timeout exceeded
+        if cur_time - self.last_RPC_time >= self.election_timeout:
+            # become a candidate
+            self.state = 'candidate'
+            # increments current_term
+            self.current_term += 1
+            # votes for itself
+            self.votes_count += 1
+            # send vote requests to other servers
+            for server_id in self.other_server_ids:
+                #indexed by 1
+                last_log_index = len(self.log) - 1
+                (last_log_term, command) = self.log[last_log_index]
+                request_for_vote = {'src': self.id, 'dst': server_id, 'leader': 'FFFF', 'type': 'request_vote',
+                                    'MID': str(uuid.UUID), 'term': self.current_term, 'id', self.id,
+                                   'last_log_idx': last_log_index, 'last_log_term': last_log_term}
+                sock.send(json.dumps(request_for_vote))
+
+            # TODO receive responses, if N/2 + 1, then become leader and send heartbeat
+            # if tie, timeout and restart election
+            # if failed, become follower
+
+
+
+
+
+
 """
 The main program
 """
 def main():
     global last, my_id, replica_ids, sock
+
+    # Your ID number
+    my_id = sys.argv[1]
+
+    # The ID numbers of all the other replicas
+    replica_ids = sys.argv[2:]
+    my_server = StateMachine(my_id, time.time(), replica_ids, )
+
     while True:
         ready = select.select([sock], [], [], 0.1)[0]
 
