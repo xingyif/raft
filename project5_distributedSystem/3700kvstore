@@ -152,7 +152,7 @@ def main():
 
     # The ID numbers of all the other replicas
     replica_ids = sys.argv[2:]
-    my_server = StateMachine(my_id, time.time(), replica_ids, )
+    my_server = StateMachine(my_id, replica_ids)
 
     while True:
         ready = select.select([sock], [], [], 0.1)[0]
