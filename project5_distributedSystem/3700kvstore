@@ -65,6 +65,8 @@ messages to/from clients).
 
 # Connect to the network. All messages to/from other replicas and clients will
 # occur over this socket
+SOCK_RECV_SIZE = 32768
+
 sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
 sock.connect(my_id)
 
@@ -85,7 +87,7 @@ class StateMachine:
         self.commit_idx = 0
         self.last_RPC_time = time.time()
         # initial random, then record RTT in list, get mean + x miliseconds as timeout
-        self.election_timeout = randint(150, 300)
+        self.election_timeout = randint(150, 300) #TODOD reset after receives a heartbeat from leader
         self.votes_count = 0
         self.other_server_ids = other_server_ids
         self.highest_entry_commited_index = 0
@@ -109,32 +111,127 @@ class StateMachine:
                 self.highest_entries_replicated[server_id] = 0
         return self.highest_entries_replicated
 
+    # election timeout exceeded
+    # if cur_time - self.last_RPC_time >= self.election_timeout:
+    # TODO do we care about RPC during election, not really
+    def start_election(self):
+        self.election_timeout = randint(150, 300)
+        start_election_time = time.time()
+        self.become_candidate()
+        self.request_vote_RPC()
+        self.process_vote_results(start_election_time)
+
     """
     Becomes a candidate, increments current_term, and votes for itself, send vote request to other servers
     """
     def become_candidate(self):
-        cur_time = time.time()
-        # election timeout exceeded
-        if cur_time - self.last_RPC_time >= self.election_timeout:
-            # become a candidate
-            self.state = 'candidate'
-            # increments current_term
-            self.current_term += 1
-            # votes for itself
-            self.votes_count += 1
-            # send vote requests to other servers
-            for server_id in self.other_server_ids:
-                #indexed by 1
-                last_log_index = len(self.log) - 1
-                (last_log_term, command) = self.log[last_log_index]
-                request_for_vote = {'src': self.id, 'dst': server_id, 'leader': 'FFFF', 'type': 'request_vote',
-                                    'MID': str(uuid.UUID), 'term': self.current_term, 'id', self.id,
-                                   'last_log_idx': last_log_index, 'last_log_term': last_log_term}
-                sock.send(json.dumps(request_for_vote))
+        global sock, SOCK_RECV_SIZE
+        # become a candidate
+        self.state = 'candidate'
+        # increments current_term
+        self.current_term += 1
+        # votes for itself
+        self.votes_count += 1
+        # do not vote for anyone else
+        if self.voted_for is None:
+            self.voted_for = self.id # TODO how to check if we actually voted or not
 
+
+    def request_vote_RPC(self):
+        # send vote requests to other servers
+        for server_id in self.other_server_ids:
+            #indexed by 1
+            last_log_index = len(self.log) - 1
+            (last_log_term, command) = self.log[last_log_index]
+            request_for_vote = {'src': self.id, 'dst': server_id, 'leader': 'FFFF', 'type': 'request_vote',
+                                'MID': str(uuid.UUID), 'term': self.current_term, 'last_log_idx': last_log_index,
+                                'last_log_term': last_log_term}
+            sock.send(json.dumps(request_for_vote))
+
+    # process the received votes
+    def process_vote_results(self, start_election_time):
+        N = len(self.other_server_ids) + 1
+        majority_votes = N / 2 + 1
+        cur_time = time.time()
+        # when not timed out
+        while cur_time - start_election_time < self.election_timeout:
+            raw_vote = sock.recv(SOCK_RECV_SIZE)
+            # received nothing
+            if len(raw_vote) == 0: break
+            else:
+                self.last_RPC_time = time.time()
+                # received some response
+                vote = json.loads(raw_vote)
+                # {'src': self.id, 'dst': server_id, 'leader': 'FFFF', 'type': 'response_vote', 'term': self.current_term, 'vote_granted': True}
+                if vote['type'] == 'response_vote':
+                    if self.current_term > vote['term']:
+                        if vote['vote_granted']:
+                            # collect vote
+                            self.votes_count += 1
+                        else:
+                            # they didn't vote for me
+                            pass
+                    # if received from a machine with an at least as high term
+                    elif self.current_term <= vote['term']:
+                        self.become_follower(vote['term'], vote['leader']) # update term TODO what is vote['leader;] is dead
+                        return
+                # if we received a heartbeat from a new leader, then abort election process
+                elif vote['type'] == 'heartbeat':
+                    self.become_follower(vote['term'], vote['leader'])
+                    return
+                # if other requests me to vote for them while I am a candidate
+                elif vote['type'] == 'request_vote':
+                    if self.current_term > vote['term']:
+                        response_to_vote = {'src': self.id, 'dst': vote['src'], 'leader': 'FFFF', 'type': 'response_vote',
+                                'MID': vote['MID'], 'term': self.current_term, 'vote_granted': False}
+                        sock.send(json.dumps(response_to_vote))
+        # checks if received enough votes
+        # if gathered majority votes, become leader and send heart beats
+        if self.votes_count >= majority_votes:
+            self.become_leader()
+        else:
+            self.start_election()
             # TODO receive responses, if N/2 + 1, then become leader and send heartbeat
             # if tie, timeout and restart election
             # if failed, become follower
+
+    def become_leader(self):
+        self.state = 'leader'
+        self.leader_id = self.id
+        self.voted_for = None
+        self.votes_count = 0
+
+        # send heart beat
+        # handle client requests, responde to clients
+        # send commit log stuff
+
+    def become_follower(self, new_term, new_leader):
+        global sock, SOCK_RECV_SIZE
+        self.state = 'follower'
+        self.current_term = new_term
+        self.voted_for = None
+        self.votes_count = 0
+        self.leader_id = new_leader
+        # TODO handle request_vote messages, reset RPC
+        raw_msg = sock.recv(SOCK_RECV_SIZE)
+        if raw_msg:
+            msg = json.loads(raw_msg)
+            if msg['type'] == 'heartbeat':
+                self.last_RPC_time = time.time()
+            elif msg['type'] == 'request_vote':
+                if self.voted_for is None:
+                    if self.current_term < msg['term']:
+                        self.voted_for = msg['src']
+                        self.last_RPC_time = time.time()
+                        # TODO who should be the leader
+                        response_to_vote = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id, 'type': 'response_vote',
+                                'MID': msg['MID'], 'term': msg['term'], 'vote_granted': True}
+                        sock.send(response_to_vote)
+
+
+        # redirect clients to leader
+        # receives heart beat, reset RPC
+
 
 
 
@@ -145,7 +242,7 @@ class StateMachine:
 The main program
 """
 def main():
-    global last, my_id, replica_ids, sock
+    global last, my_id, replica_ids, sock, SOCK_RECV_SIZE
 
     # Your ID number
     my_id = sys.argv[1]
@@ -158,7 +255,7 @@ def main():
         ready = select.select([sock], [], [], 0.1)[0]
 
         if sock in ready:
-            msg_raw = sock.recv(32768)
+            msg_raw = sock.recv(SOCK_RECV_SIZE)
 
             if len(msg_raw) == 0: continue
             msg = json.loads(msg_raw)
