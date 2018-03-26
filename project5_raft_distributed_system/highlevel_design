@@ -1,0 +1,79 @@
+Beginning:
+	1. Everything is a follower. Nobody will receive heartbeats
+	2. If a follower receives no communication during its election timeout, it starts an election
+
+Election:
+	1. To begin an election, a timed out follower:
+		-Increments its current term
+		-Becomes a candidate
+		-Votes for itself
+		-Sends RequestVote RPCs
+	2. A candidate continues in the election until:
+		a. It wins the election
+			-Candidate received votes from the majority of servers
+			-It becomes leader and sends heartbeats to all of the other servers to establish
+			its authority and prevent new elections
+		b. Another server establishes itself as leader
+			-Candidate receives heartbeat from claimed leader
+			-If the claimed leader's term is at least as large as the current term, the leader  
+			is accepted as legitimate
+			-If the claimed leader's term is smaller, it rejects the RPC and continues in  
+			candidate state
+		c. A period of time goes by with no winner
+			-Each candidate times out and starts a new election by incrementing its term
+			-Without randomized timeouts, split votes can remain indefinitely
+
+Log Replication:
+	1. Leader receives client command
+	2. Leader appends the command to its log as a new entry and then issues AppendEntries RPCs in parallel to each of the other servers
+	3. When the entry has been safely replicated (process described below), the leader will apply the entry to its state machine and return the result to the client
+	4. If followers crash or packets are lost, the leader retries AppendEntires RPCs indefinitely until all followers eventually store all log entries
+
+Log Organization:
+	1. Each log entry stores a state machine command along with the term number when the entry was received by the leader
+	2. The term numbers in log entries are used to detect inconsistencies between logs
+	3. A log entry is committed once the leader that created the entry has has replicated it on a majority of servers
+	4. This also commits all preceding entries in the leader's log, including entries created by preceding leaders
+	5. Leader keeps track of the highest index it knows to be committed, and *includes that index in future AppendEntries RPCs (including heartbeats)* so that other servers eventually find out
+	6. Once a follower learns that a log entry is committed, it applies the entry to its local state machine (in log order)
+		-Consistency check: When sending an AppendEntries RPC, the leader includes the index and term of the entry in its log that immediately precedes the new entries. If the follower does not find an entry in its log with the same index and term, it refuses the new entries
+	7. To bring a follower's log into consistency with its own:
+		-The leader must find the latest log entry where the two logs agree
+		-Delete any entries in the follower's log after that point
+		-Send the follower all of the leader's entries after that point
+		-The leader maintains a nextIndex for each follower, which is the index of the next log entry the header will send to that follower. When a leader first comes to power, it initializes all the nextIndex values to the index just after the last one in its log
+		-If a follower's log is inconsistent with the leader's the AppendEntries  consistency check will fail and the leader will decrement nextIndex and retry. Eventually nextIndex will reach a point where the leader and follower logs match
+	8. The RequestVote RPC includes information about the candidate's log, and the voter denies its vote if its own log is more up-to-date than that of the candidate
+
+
+-----Up to 5.6--------
+
+
+
+
+Leader:
+	Can receive:
+		1. Client requests
+		2. ACKs from followers
+	Can send:
+		1. Heartbeats to maintain authority
+		2. AppendLog RPCs to servers
+		3. Response to client
+
+Candidate:
+	Can receive:
+		1. RequestVote RPCs --> refuse
+		2. RequestVote RPC Responses -> processCollectVote
+		3. Heartbeat --> Follower
+	Can send:
+		RequestVote RPCs
+
+Follower:
+	Can receive:
+		1. Heartbeats from leader (reset timeout)
+		2. RequestVote RPCs (if haven't voted and candidate term is better or log is longer, vote for them)
+		3. Client request -> redirect to leader
+		4. AppendLog RPCs
+	Can send:
+		1. Response to RequestVote
+		2. ACKs
