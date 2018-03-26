@@ -62,6 +62,12 @@ messages to/from clients).
 #lastLogTerm
 
 
+# Your ID number
+my_id = sys.argv[1]
+
+# The ID numbers of all the other replicas
+replica_ids = sys.argv[2:]
+
 
 # Connect to the network. All messages to/from other replicas and clients will
 # occur over this socket
@@ -97,6 +103,7 @@ class StateMachine:
         # machineId, next_idx_to_send
         self.next_idx_to_send = self.init_next_idx_to_send()
         self.highest_entries_replicated = self.init_highest_entries_replicated()
+        self.key_value_store = dict()
 
 
     def init_next_idx_to_send(self):
@@ -280,6 +287,14 @@ class StateMachine:
             msg = json.loads(raw_msg)
             # handle client's requests
             if msg['type'] == 'get':
+                # log replication
+                key = msg['key']
+                entry = self.append_new_log_entry('get', self.current_term, msg['MID'])
+                self.issue_append_entries_RPC(entry)
+                value = self.key_value_store.get(key) # returns None if not exist
+                response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
+                                      'type': 'ok', 'MID': msg['MID'], 'value': value}
+                sock.send(response_to_client)
 
 
     def leader_send_regular_heartbeat(self):
@@ -287,6 +302,30 @@ class StateMachine:
             regular_heartbeat = {'src': self.id, 'dst': server_id, 'leader': self.id, 'type': 'heartbeat',
                                  'MID': str(uuid.UUID), 'term': self.current_term}
             sock.send(regular_heartbeat)
+
+    """
+    Appends new command to its log as a new entry
+    """
+    def append_new_log_entry(self, command, term, mid):
+        # TODO should entry contain MID ?
+        entry = (mid, command, term)
+        if entry not in self.log:
+            self.log.append(entry)
+        return entry
+
+    """
+    Issues appendEntries RPC to replicate log entries
+    """
+    def issue_append_entries_RPC(self, entry):
+        entries = []
+        entries.append(entry)
+        for server_id in self.other_server_ids:
+            append_entry_RPC = {'src': self.id, 'dst': server_id, 'leader': self.id, 'type': 'append_entry',
+                                'MID': str(uuid.UUID), 'term': self.current_term,
+                                'prev_log_idx': self.highest_entry_commited_index, #TODO not sure about these three
+                                'prev_log_term': self.last_applied_log_entry,
+                                'entries': entries, 'leader_commit': self.commit_idx}
+            sock.send(append_entry_RPC)
 
 
 
@@ -296,11 +335,7 @@ The main program
 def main():
     global last, my_id, replica_ids, sock, SOCK_RECV_SIZE
 
-    # Your ID number
-    my_id = sys.argv[1]
 
-    # The ID numbers of all the other replicas
-    replica_ids = sys.argv[2:]
     my_server = StateMachine(my_id, replica_ids)
 
     while True:
