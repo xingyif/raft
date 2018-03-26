@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-
+import sched
 import sys, socket, select, time, json, random
 import uuid
 from random import randint
@@ -148,7 +148,12 @@ class StateMachine:
                                 'last_log_term': last_log_term}
             sock.send(json.dumps(request_for_vote))
 
-    # process the received votes
+    """
+    process the received votes:
+    receive responses, if N/2 + 1, then become leader and send heartbeat
+    if tie, timeout and restart election
+    if failed, become follower
+    """
     def process_vote_results(self, start_election_time):
         N = len(self.other_server_ids) + 1
         majority_votes = N / 2 + 1
@@ -176,9 +181,13 @@ class StateMachine:
                         self.become_follower(vote['term'], vote['leader']) # update term TODO what is vote['leader;] is dead
                         return
                 # if we received a heartbeat from a new leader, then abort election process
+                # TODO if receive AppendEntries RPC from leader
+                # if in RPC, leader's term is at least as large as self.cur_term => become_follower
+                # if term < self.cur_term, then reject RPC and continue as a candidate
                 elif vote['type'] == 'heartbeat':
-                    self.become_follower(vote['term'], vote['leader'])
-                    return
+                    if self.current_term < vote['term']:
+                        self.become_follower(vote['term'], vote['leader'])
+                        return
                 # if other requests me to vote for them while I am a candidate
                 elif vote['type'] == 'request_vote':
                     if self.current_term > vote['term']:
@@ -191,9 +200,7 @@ class StateMachine:
             self.become_leader()
         else:
             self.start_election()
-            # TODO receive responses, if N/2 + 1, then become leader and send heartbeat
-            # if tie, timeout and restart election
-            # if failed, become follower
+
 
     def become_leader(self):
         self.state = 'leader'
@@ -201,9 +208,6 @@ class StateMachine:
         self.voted_for = None
         self.votes_count = 0
 
-        # send heart beat
-        # handle client requests, responde to clients
-        # send commit log stuff
 
     def become_follower(self, new_term, new_leader):
         global sock, SOCK_RECV_SIZE
@@ -212,29 +216,77 @@ class StateMachine:
         self.voted_for = None
         self.votes_count = 0
         self.leader_id = new_leader
+
+    def act_as_follower(self):
+        global sock, SOCK_RECV_SIZE
         # TODO handle request_vote messages, reset RPC
+        # while True?
         raw_msg = sock.recv(SOCK_RECV_SIZE)
         if raw_msg:
             msg = json.loads(raw_msg)
+            # receiving heart beat, reset RPC
             if msg['type'] == 'heartbeat':
                 self.last_RPC_time = time.time()
+            # Election Phase, handling vote
             elif msg['type'] == 'request_vote':
-                if self.voted_for is None:
-                    if self.current_term < msg['term']:
+                # vote for the other
+                self.last_RPC_time = time.time()
+                if self.current_term > msg['term']:
+                    # refuse the vote, because their term is smaller
+                    response_to_vote = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id,
+                                        'type': 'response_vote',
+                                        'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
+                    sock.send(response_to_vote)
+                # if votedFor is null or candidateId
+                if self.voted_for is None or self.voted_for == msg['src']:
+                    last_log_index = len(self.log) - 1
+                    (last_log_term, command) = self.log[last_log_index]
+                    if last_log_index <= msg['last_log_index'] or last_log_term <= msg['last_log_term']:
                         self.voted_for = msg['src']
-                        self.last_RPC_time = time.time()
                         # TODO who should be the leader
                         response_to_vote = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id, 'type': 'response_vote',
                                 'MID': msg['MID'], 'term': msg['term'], 'vote_granted': True}
                         sock.send(response_to_vote)
+                else:
+                    # refuse to vote
+                    response_to_vote = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id,
+                                        'type': 'response_vote',
+                                        'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
+                    sock.send(response_to_vote)
+
+            # handling client's requests, redirect clients to leader
+            elif msg['type'] == 'get':
+                # {"src": "<ID>", "dst": "<ID>", "leader": "<ID>", "type": "get", "MID": "<a unique string>", "key": "<some key>"}
+                response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'redirect', 'MID': msg['MID']}
+                sock.send(response_to_client)
+
+            # TODO appendLog RPC
+        # TODO received nothing
 
 
-        # redirect clients to leader
-        # receives heart beat, reset RPC
+    # send heartbeat
+    # handle client requests, responde to clients
+    # send commit log stuff
+    def act_as_leader(self):
+        global sock, SOCK_RECV_SIZE
+
+        # send regular heartbeat
+        s = sched.scheduler(time.time, time.sleep)
+        s.enter(0.15, 1, self.leader_send_regular_heartbeat(), ())
+        s.run()
+
+        raw_msg = sock.recv(SOCK_RECV_SIZE)
+        if raw_msg:
+            msg = json.loads(raw_msg)
+            # handle client's requests
+            if msg['type'] == 'get':
 
 
-
-
+    def leader_send_regular_heartbeat(self):
+        for server_id in self.other_server_ids:
+            regular_heartbeat = {'src': self.id, 'dst': server_id, 'leader': self.id, 'type': 'heartbeat',
+                                 'MID': str(uuid.UUID), 'term': self.current_term}
+            sock.send(regular_heartbeat)
 
 
 
