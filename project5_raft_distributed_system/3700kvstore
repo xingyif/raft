@@ -1,303 +1,66 @@
 #!/usr/bin/env python
-import sched
+
 import sys, socket, select, time, json, random
-import uuid
-from random import randint
 
-"""
-Data Structures Needed:
+# Your ID number
+my_id = sys.argv[1]
 
-- Message: All messages must be encoded as a dictionary
-src - The ID of the source of the message.
-dst - The ID of the destination of the message.
-leader - The ID of the leader, or "FFFF" if the leader's ID is unknown.
-type - The type of the message.
-
-
-Send/Receive:
-Each of your replicas will connect to a single domain socket (the way a server 
-would connect to a single Ethernet cable). A replica will send and receive all 
-messages over this socket (i.e. messages to/from other replicas, as well as 
-messages to/from clients). 
-"""
-#STATE:
-#last term server has seen 
-#current_term = 0
-#candidate_id that received vote in current term
-#voted_for = None
-#log entries; each entry contains command for state machine,
-#and term when entry was received by leader
-#log[] = list()
-#index of highest log entry known to be committed
-#commit_index = 0
-#index of highest log entry applied to state machine
-#last_applied = 0
-#index of the next log entry to send to that server
-#nextIndex[] = leader of last log index + 1
-#index of highest log entry known to be replicated
-#matchIndex[]
-
-#AppendEntries RPC
-#term = leader's term
-#so follower can redirect clients
-#leaderId = 
-#index of log entry immediately preceding new ones
-#prevLogIndex = 
-#term of prevLogIndex entry
-#prevLogTerm = 
-#log entries to store
-#(empty for heartbeat; may send more than one for efficiency) 
-#entries[]
-#leader's commitIndex
-#leaderCommit
-
-#RequestVote RPC
-#candidate's term
-#term
-#candidate's requesting vote
-#candidateId
-#index of candidate's last long entry
-#lastLogIndex
-#term of candidate's last log entry
-#lastLogTerm
-
-
+# The ID numbers of all the other replicas
+replica_ids = sys.argv[2:]
 
 # Connect to the network. All messages to/from other replicas and clients will
 # occur over this socket
-SOCK_RECV_SIZE = 32768
-
 sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
-sock.connect(my_id)
 
 last = 0
-
 
 class StateMachine:
 
     def __init__(self, id, other_server_ids):
         self.id = id
         self.leader_id = None
-        # leader, candidate, follower
         self.state = 'follower'
-        # others can be different, if find larger, becomes a follower and update current_term; if find smaller, return error
         self.current_term = 0
-        # last candidate ID I voted for
         self.voted_for = None
+        self.log[] = list()
         self.commit_idx = 0
+        self.last_applied = 0
+        self.next_idx[] = list()
+        self.match_idx[] = list()
         self.last_RPC_time = time.time()
-        # initial random, then record RTT in list, get mean + x miliseconds as timeout
-        self.election_timeout = randint(150, 300) #TODOD reset after receives a heartbeat from leader
-        self.votes_count = 0
-        self.other_server_ids = other_server_ids
-        self.highest_entry_commited_index = 0
-        self.last_applied_log_entry = 0
-        #  entry contains command for state machine, and term when entry was received by leader, first index is 1
-        self.log = []
-        # machineId, next_idx_to_send
-        self.next_idx_to_send = self.init_next_idx_to_send()
-        self.highest_entries_replicated = self.init_highest_entries_replicated()
+        self.election_timeout = randint(150, 300)
 
+    '''
+    resets the timeout when an RPC is received
+    '''
+    def reset_timeout(self):
+        self.election_timeout = randint(150, 300)
+        self.last_RPC_time = time.time()
 
-    def init_next_idx_to_send(self):
-        if self.state == 'leader':
-            for server_id in self.other_server_ids:
-                self.next_idx_to_send[server_id] = len(self.log) + 1
-        return self.next_idx_to_send
+    '''
+    check if this server has timed out
+    '''
+    def has_timed_out(self):
+        cur_time = time.time()
+        return cur_time - self.last_RPC_time > self.election_timeout
 
-    def init_highest_entries_replicated(self):
-        if self.state == 'leader':
-            for server_id in self.other_server_ids:
-                self.highest_entries_replicated[server_id] = 0
-        return self.highest_entries_replicated
-
-    # election timeout exceeded
-    # if cur_time - self.last_RPC_time >= self.election_timeout:
-    # TODO do we care about RPC during election, not really
     def start_election(self):
         self.election_timeout = randint(150, 300)
         start_election_time = time.time()
         self.become_candidate()
-        self.request_vote_RPC()
-        self.process_vote_results(start_election_time)
+        self.request_votes()
 
-    """
-    Becomes a candidate, increments current_term, and votes for itself, send vote request to other servers
-    """
     def become_candidate(self):
-        global sock, SOCK_RECV_SIZE
-        # become a candidate
         self.state = 'candidate'
-        # increments current_term
         self.current_term += 1
-        # votes for itself
         self.votes_count += 1
-        # do not vote for anyone else
-        if self.voted_for is None:
-            self.voted_for = self.id # TODO how to check if we actually voted or not
 
-
-    def request_vote_RPC(self):
-        # send vote requests to other servers
-        for server_id in self.other_server_ids:
-            #indexed by 1
-            last_log_index = len(self.log) - 1
-            (last_log_term, command) = self.log[last_log_index]
-            request_for_vote = {'src': self.id, 'dst': server_id, 'leader': 'FFFF', 'type': 'request_vote',
-                                'MID': str(uuid.UUID), 'term': self.current_term, 'last_log_idx': last_log_index,
-                                'last_log_term': last_log_term}
-            sock.send(json.dumps(request_for_vote))
-
-    """
-    process the received votes:
-    receive responses, if N/2 + 1, then become leader and send heartbeat
-    if tie, timeout and restart election
-    if failed, become follower
-    """
-    def process_vote_results(self, start_election_time):
-        N = len(self.other_server_ids) + 1
-        majority_votes = N / 2 + 1
-        cur_time = time.time()
-        # when not timed out
-        while cur_time - start_election_time < self.election_timeout:
-            raw_vote = sock.recv(SOCK_RECV_SIZE)
-            # received nothing
-            if len(raw_vote) == 0: break
-            else:
-                self.last_RPC_time = time.time()
-                # received some response
-                vote = json.loads(raw_vote)
-                # {'src': self.id, 'dst': server_id, 'leader': 'FFFF', 'type': 'response_vote', 'term': self.current_term, 'vote_granted': True}
-                if vote['type'] == 'response_vote':
-                    if self.current_term > vote['term']:
-                        if vote['vote_granted']:
-                            # collect vote
-                            self.votes_count += 1
-                        else:
-                            # they didn't vote for me
-                            pass
-                    # if received from a machine with an at least as high term
-                    elif self.current_term <= vote['term']:
-                        self.become_follower(vote['term'], vote['leader']) # update term TODO what is vote['leader;] is dead
-                        return
-                # if we received a heartbeat from a new leader, then abort election process
-                # TODO if receive AppendEntries RPC from leader
-                # if in RPC, leader's term is at least as large as self.cur_term => become_follower
-                # if term < self.cur_term, then reject RPC and continue as a candidate
-                elif vote['type'] == 'heartbeat':
-                    if self.current_term < vote['term']:
-                        self.become_follower(vote['term'], vote['leader'])
-                        return
-                # if other requests me to vote for them while I am a candidate
-                elif vote['type'] == 'request_vote':
-                    if self.current_term > vote['term']:
-                        response_to_vote = {'src': self.id, 'dst': vote['src'], 'leader': 'FFFF', 'type': 'response_vote',
-                                'MID': vote['MID'], 'term': self.current_term, 'vote_granted': False}
-                        sock.send(json.dumps(response_to_vote))
-        # checks if received enough votes
-        # if gathered majority votes, become leader and send heart beats
-        if self.votes_count >= majority_votes:
-            self.become_leader()
-        else:
-            self.start_election()
-
-
-    def become_leader(self):
-        self.state = 'leader'
-        self.leader_id = self.id
-        self.voted_for = None
-        self.votes_count = 0
-
-
-    def become_follower(self, new_term, new_leader):
-        global sock, SOCK_RECV_SIZE
-        self.state = 'follower'
-        self.current_term = new_term
-        self.voted_for = None
-        self.votes_count = 0
-        self.leader_id = new_leader
-
-    def act_as_follower(self):
-        global sock, SOCK_RECV_SIZE
-        # TODO handle request_vote messages, reset RPC
-        # while True?
-        raw_msg = sock.recv(SOCK_RECV_SIZE)
-        if raw_msg:
-            msg = json.loads(raw_msg)
-            # receiving heart beat, reset RPC
-            if msg['type'] == 'heartbeat':
-                self.last_RPC_time = time.time()
-            # Election Phase, handling vote
-            elif msg['type'] == 'request_vote':
-                # vote for the other
-                self.last_RPC_time = time.time()
-                if self.current_term > msg['term']:
-                    # refuse the vote, because their term is smaller
-                    response_to_vote = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id,
-                                        'type': 'response_vote',
-                                        'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
-                    sock.send(response_to_vote)
-                # if votedFor is null or candidateId
-                if self.voted_for is None or self.voted_for == msg['src']:
-                    last_log_index = len(self.log) - 1
-                    (last_log_term, command) = self.log[last_log_index]
-                    if last_log_index <= msg['last_log_index'] or last_log_term <= msg['last_log_term']:
-                        self.voted_for = msg['src']
-                        # TODO who should be the leader
-                        response_to_vote = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id, 'type': 'response_vote',
-                                'MID': msg['MID'], 'term': msg['term'], 'vote_granted': True}
-                        sock.send(response_to_vote)
-                else:
-                    # refuse to vote
-                    response_to_vote = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id,
-                                        'type': 'response_vote',
-                                        'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
-                    sock.send(response_to_vote)
-
-            # handling client's requests, redirect clients to leader
-            elif msg['type'] == 'get':
-                # {"src": "<ID>", "dst": "<ID>", "leader": "<ID>", "type": "get", "MID": "<a unique string>", "key": "<some key>"}
-                response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'redirect', 'MID': msg['MID']}
-                sock.send(response_to_client)
-
-            # TODO appendLog RPC
-        # TODO received nothing
-
-
-    # send heartbeat
-    # handle client requests, responde to clients
-    # send commit log stuff
-    def act_as_leader(self):
-        global sock, SOCK_RECV_SIZE
-
-        # send regular heartbeat
-        s = sched.scheduler(time.time, time.sleep)
-        s.enter(0.15, 1, self.leader_send_regular_heartbeat(), ())
-        s.run()
-
-        raw_msg = sock.recv(SOCK_RECV_SIZE)
-        if raw_msg:
-            msg = json.loads(raw_msg)
-            # handle client's requests
-            if msg['type'] == 'get':
-
-
-    def leader_send_regular_heartbeat(self):
-        for server_id in self.other_server_ids:
-            regular_heartbeat = {'src': self.id, 'dst': server_id, 'leader': self.id, 'type': 'heartbeat',
-                                 'MID': str(uuid.UUID), 'term': self.current_term}
-            sock.send(regular_heartbeat)
-
-
-
-"""
-The main program
-"""
 def main():
     global last, my_id, replica_ids, sock, SOCK_RECV_SIZE
 
     # Your ID number
     my_id = sys.argv[1]
+    sock.connect(my_id)
 
     # The ID numbers of all the other replicas
     replica_ids = sys.argv[2:]
