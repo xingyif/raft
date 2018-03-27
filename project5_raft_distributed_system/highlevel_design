@@ -1,11 +1,10 @@
-#in become_candidate():
-	if self.voted_for is None:
-            self.votes_count += 1
-            self.voted_for = self.id
+//in request_votes:
+	(mid, last_log_term, command) = self.log[last_log_index]
 
+//reset election time after receiving vote
 
-
-
+//handle If votedFor is null or candidateId, and candidate’s log is at
+least as up-to-date as receiver’s log, grant vote in process_vote_results
 
 Beginning:
 	1. Everything is a follower. Nobody will receive heartbeats
