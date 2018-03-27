@@ -267,9 +267,41 @@ class StateMachine:
                 response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'redirect', 'MID': msg['MID']}
                 sock.send(response_to_client)
 
-            # TODO appendLog RPC
+            elif msg['type'] == 'append_entry':
+                self.receive_append_entry()
         # TODO received nothing
 
+    def receive_append_entry(self, msg):
+        response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
+             'type': 'append_entry', 'MID': msg['MID'], 'success': False}
+        #truple for getting entry values
+        (mid, command, term) = msg['entries']
+        #term < currentTerm
+        if term < self.current_term:
+             sock.send(response)
+             return
+        (mid_prev, command_prev, term_prev) = log[msg['prev_log_idx']] 
+        if term_prev != msg['prev_log_term']:
+            #entry at prevLogIndex doesn't have term that matches prev_log_term
+            sock.send(response)
+            return
+        idx = msg['prev_log_idx'] + 1
+        #existing entry conflicts with a new one
+        (my_mid, my_command, my_term) = log[idx]
+        if my_term != term:
+            #delete existing entry and all following
+            while len(log) != idx:
+                log.pop(idx)
+            #do we reply with something here???? TODO
+            return
+        #append any new entries not in the log
+        log.append(msg['entries'])
+        lead_commit = msg['leader_commit']
+        if msg['leader_commit'] > self.commit_idx:
+            self.commit_idx = min(msg['leader_commit'], idx)
+        response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
+             'type': 'append_entry', 'MID': msg['MID'], 'success': True}
+        sock.send(response)
 
     # send heartbeat
     # handle client requests, responde to clients
@@ -326,6 +358,7 @@ class StateMachine:
                                 'prev_log_term': self.last_applied_log_entry,
                                 'entries': entries, 'leader_commit': self.commit_idx}
             sock.send(append_entry_RPC)
+
 
 
 
