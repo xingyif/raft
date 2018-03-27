@@ -138,10 +138,9 @@ class StateMachine:
         # increments current_term
         self.current_term += 1
         # votes for itself
-        self.votes_count += 1
-        # do not vote for anyone else
         if self.voted_for is None:
-            self.voted_for = self.id # TODO how to check if we actually voted or not
+            self.votes_count += 1
+            self.voted_for = self.id
 
 
     def request_vote_RPC(self):
