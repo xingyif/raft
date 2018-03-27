@@ -67,7 +67,9 @@ class StateMachine:
         self.state = 'candidate'
         self.current_term += 1
         self.votes_count += 1
-        #TODO need to do voted for here
+        if self.voted_for is None:
+            self.votes_count += 1
+            self.voted_for = self.id
 
     def request_votes(self):
         for server_id in self.other_server_ids:

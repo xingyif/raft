@@ -1,3 +1,12 @@
+#in become_candidate():
+	if self.voted_for is None:
+            self.votes_count += 1
+            self.voted_for = self.id
+
+
+
+
+
 Beginning:
 	1. Everything is a follower. Nobody will receive heartbeats
 	2. If a follower receives no communication during its election timeout, it starts an election
