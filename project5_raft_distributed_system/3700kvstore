@@ -244,6 +244,7 @@ class StateMachine:
                                         'type': 'response_vote',
                                         'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
                     sock.send(response_to_vote)
+                # TODO pull this in handle_request_vote_RPC()
                 # if votedFor is null or candidateId
                 if self.voted_for is None or self.voted_for == msg['src']:
                     last_log_index = len(self.log) - 1
