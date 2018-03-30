@@ -25,12 +25,9 @@ Election:
 
 Log Replication:
 	1. Leader receives client command
-	2. Leader appends the command to its log as a new entry and then issues AppendEntries RPCs in parallel
-	    to each of the other servers
-	3. When the entry has been safely replicated (process described below), the leader will apply
-	    the entry to its state machine and return the result to the client
-	4. If followers crash or packets are lost, the leader retries AppendEntires RPCs indefinitely
-	    until all followers eventually store all log entries
+	2. Leader appends the command to its log as a new entry and then issues AppendEntries RPCs in parallel to each of the other servers
+	3. When the entry has been safely replicated (process described below), the leader will apply the entry to its state machine and return the result to the client
+	4. If followers crash or packets are lost, the leader retries AppendEntires RPCs indefinitely until all followers eventually store all log entries
 
 Log Organization:
 	1. Each log entry stores a state machine command along with the term number when the entry was received by the leader

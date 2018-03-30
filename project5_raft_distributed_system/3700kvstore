@@ -109,6 +109,8 @@ class StateMachine:
     def init_next_idx_to_send(self):
         if self.state == 'leader':
             for server_id in self.other_server_ids:
+                #SP: Can we actually do this? For each server, we're putitng in
+                #the length of the log for our current self?
                 self.next_idx_to_send[server_id] = len(self.log) + 1
         return self.next_idx_to_send
 
@@ -138,10 +140,9 @@ class StateMachine:
         # increments current_term
         self.current_term += 1
         # votes for itself
-        self.votes_count += 1
-        # do not vote for anyone else
         if self.voted_for is None:
-            self.voted_for = self.id # TODO how to check if we actually voted or not
+            self.votes_count += 1
+            self.voted_for = self.id
 
 
     def request_vote_RPC(self):
@@ -246,6 +247,8 @@ class StateMachine:
                     sock.send(response_to_vote)
                 # TODO pull this in handle_request_vote_RPC()
                 # if votedFor is null or candidateId
+                #SP: I actually think I don't understand this condition, though I know we need it
+                #Why do we possibly vote for the same candidate twice? 
                 if self.voted_for is None or self.voted_for == msg['src']:
                     last_log_index = len(self.log) - 1
                     (last_log_term, command) = self.log[last_log_index]
@@ -268,9 +271,41 @@ class StateMachine:
                 response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'redirect', 'MID': msg['MID']}
                 sock.send(response_to_client)
 
-            # TODO appendLog RPC
+            elif msg['type'] == 'append_entry':
+                self.receive_append_entry()
         # TODO received nothing
 
+    def receive_append_entry(self, msg):
+        response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
+             'type': 'append_entry', 'MID': msg['MID'], 'success': False}
+        #truple for getting entry values
+        (mid, command, term) = msg['entries']
+        #term < currentTerm
+        if term < self.current_term:
+             sock.send(response)
+             return
+        (mid_prev, command_prev, term_prev) = log[msg['prev_log_idx']] 
+        if term_prev != msg['prev_log_term']:
+            #entry at prevLogIndex doesn't have term that matches prev_log_term
+            sock.send(response)
+            return
+        idx = msg['prev_log_idx'] + 1
+        #existing entry conflicts with a new one
+        (my_mid, my_command, my_term) = log[idx]
+        if my_term != term:
+            #delete existing entry and all following
+            while len(log) != idx:
+                log.pop(idx)
+            #do we reply with something here???? TODO
+            return
+        #append any new entries not in the log
+        log.append(msg['entries'])
+        lead_commit = msg['leader_commit']
+        if msg['leader_commit'] > self.commit_idx:
+            self.commit_idx = min(msg['leader_commit'], idx)
+        response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
+             'type': 'append_entry', 'MID': msg['MID'], 'success': True}
+        sock.send(response)
 
     # send heartbeat
     # handle client requests, responde to clients
@@ -327,6 +362,7 @@ class StateMachine:
                                 'prev_log_term': self.last_applied_log_entry,
                                 'entries': entries, 'leader_commit': self.commit_idx}
             sock.send(append_entry_RPC)
+
 
 
 
