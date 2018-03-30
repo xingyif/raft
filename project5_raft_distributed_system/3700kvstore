@@ -109,6 +109,8 @@ class StateMachine:
     def init_next_idx_to_send(self):
         if self.state == 'leader':
             for server_id in self.other_server_ids:
+                #SP: Can we actually do this? For each server, we're putitng in
+                #the length of the log for our current self?
                 self.next_idx_to_send[server_id] = len(self.log) + 1
         return self.next_idx_to_send
 
@@ -244,6 +246,8 @@ class StateMachine:
                                         'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
                     sock.send(response_to_vote)
                 # if votedFor is null or candidateId
+                #SP: I actually think I don't understand this condition, though I know we need it
+                #Why do we possibly vote for the same candidate twice? 
                 if self.voted_for is None or self.voted_for == msg['src']:
                     last_log_index = len(self.log) - 1
                     (last_log_term, command) = self.log[last_log_index]
