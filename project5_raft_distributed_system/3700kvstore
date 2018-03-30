@@ -107,18 +107,18 @@ class StateMachine:
 
 
     def init_next_idx_to_send(self):
+        next_idx_to_send = {}
         if self.state == 'leader':
             for server_id in self.other_server_ids:
-                #SP: Can we actually do this? For each server, we're putitng in
-                #the length of the log for our current self?
-                self.next_idx_to_send[server_id] = len(self.log) + 1
-        return self.next_idx_to_send
+                next_idx_to_send[server_id] = len(self.log)
+        return next_idx_to_send
 
     def init_highest_entries_replicated(self):
+        highest_entries_replicated = {}
         if self.state == 'leader':
             for server_id in self.other_server_ids:
-                self.highest_entries_replicated[server_id] = 0
-        return self.highest_entries_replicated
+                highest_entries_replicated[server_id] = 0
+        return highest_entries_replicated
 
     # election timeout exceeded
     # if cur_time - self.last_RPC_time >= self.election_timeout:
@@ -212,6 +212,8 @@ class StateMachine:
 
     def become_leader(self):
         self.state = 'leader'
+        self.next_idx_to_send = self.init_next_idx_to_send()
+        self.highest_entries_replicated = self.highest_entries_replicated()
         self.leader_id = self.id
         self.voted_for = None
         self.votes_count = 0
@@ -246,9 +248,7 @@ class StateMachine:
                                         'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
                     sock.send(response_to_vote)
                 # if votedFor is null or candidateId
-                #SP: I actually think I don't understand this condition, though I know we need it
-                #Why do we possibly vote for the same candidate twice? 
-                if self.voted_for is None or self.voted_for == msg['src']:
+                elif self.voted_for is None or self.voted_for == msg['src']:
                     last_log_index = len(self.log) - 1
                     (last_log_term, command) = self.log[last_log_index]
                     if last_log_index <= msg['last_log_index'] or last_log_term <= msg['last_log_term']:
