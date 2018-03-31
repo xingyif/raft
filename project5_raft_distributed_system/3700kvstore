@@ -375,11 +375,32 @@ class StateMachine:
                 key = msg['key']
                 entry = self.append_new_log_entry('get', self.current_term, msg['MID'])
                 self.issue_append_entries_RPC(entry)
+
+                # TODO handle RPC response from the followers, make sure they actually commited before moving on
+                # if no response after certain time, resend to them
+                
+
                 value = self.key_value_store.get(key) # returns None if not exist
+                # if the key doesn't exist, return empty string, in project spec
+                if value is None:
+                    value = ''
                 response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
                                       'type': 'ok', 'MID': msg['MID'], 'value': value}
                 sock.send(response_to_client)
-            # TODO handle put from client
+            # handle put from client
+            elif msg['type'] == 'put':
+                # append this command to our own log
+                entry = self.append_new_log_entry('put', self.current_term, msg['MID'])
+                # requests the followers to append this command to their logs
+                self.issue_append_entries_RPC(entry)
+
+                # TODO handle RPC response from the followers, make sure they actually commited before moving on
+                # if no response after certain time, resend to them
+
+                # put the key and value into the map
+                self.key_value_store[msg['key']] = msg['value']
+                response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
+                                      'type': 'ok', 'MID': msg['MID']}
 
 
     def leader_send_regular_heartbeat(self):
@@ -400,6 +421,7 @@ class StateMachine:
 
     """
     Issues appendEntries RPC to replicate log entries
+    # TODO handle this RPC when follower receives & candidate receives
     """
     def issue_append_entries_RPC(self, entry):
         entries = []
@@ -411,6 +433,7 @@ class StateMachine:
                                 'prev_log_term': self.last_applied_log_entry,
                                 'entries': entries, 'leader_commit': self.commit_idx}
             sock.send(append_entry_RPC)
+
 
 
 
