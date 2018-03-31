@@ -1,3 +1,29 @@
+Raft:
+As a follower:
+
+	##### Election
+	if election_timeout
+		if did not receive any request_vote, become candidate
+    	start election, vote for self, send out request_vote
+
+    	once get N/2+1, them become leader
+
+	else, then i am not the first that timed out, i will just respond to incoming votes
+    	listen to request_votes, if reciving node hasn't voted yet, then it votes for the candidate
+    	reset election timeout
+
+    ####### Regular
+    if receive AppendEntries:
+    	respond
+    	
+As a leader:
+	send out AppendEntries to followers, send in intervals: heartbeat_timeout/RPC_timeout
+
+
+
+
+
+
 Beginning:
 	1. Everything is a follower. Nobody will receive heartbeats
 	2. If a follower receives no communication during its election timeout, it starts an election
@@ -77,3 +103,6 @@ Follower:
 	Can send:
 		1. Response to RequestVote
 		2. ACKs
+
+------------------------IMPORTANT NOTES--------------------------------
+1. Possible edge case for indexing by 0/1 and the first commit
