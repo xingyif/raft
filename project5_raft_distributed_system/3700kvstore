@@ -394,6 +394,10 @@ class StateMachine:
                 # requests the followers to append this command to their logs
                 self.issue_append_entries_RPC(entry)
 
+                # 1. apply to own log, modify self.last_applied
+                # 2. send RPC request, apply
+                # 3. parse responses, if N/2+1, then commit, then ask them to commit
+                
                 # TODO handle RPC response from the followers, make sure they actually commited before moving on
                 # if no response after certain time, resend to them
 
