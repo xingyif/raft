@@ -150,6 +150,8 @@ class StateMachine:
                 print("%s becoming candidate" % str(self.my_id))
                 self.become_candidate()
                 return
+            else:
+
 
         raw_msg = sock.recv(SOCK_RECV_SIZE)
         if raw_msg:
@@ -162,16 +164,23 @@ class StateMachine:
 
             # Election Phase, handling vote
             if msg['type'] == 'request_vote':
-                # vote for the other
+                # not vote for the other
                 if self.current_term > msg['term']:
                     # refuse the vote, because their term is smaller
                     response_to_vote = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id,
                                         'type': 'response_vote',
                                         'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
                     sock.send(response_to_vote)
+                    return
+
+                # if we're at a lower term, then we should update our term and be ready to grant vote
+                elif self.current_term < msg['term']:
+                    self.become_follower(msg['term'], msg['leader'])
+                    self.voted_for = msg['src']
+
                 # TODO pull this in handle_request_vote_RPC()
                 # if votedFor is null or candidateId
-                elif self.voted_for is None or self.voted_for == msg['src']:
+                if self.voted_for is None or self.voted_for == msg['src']:
                     last_log_index = len(self.log) - 1
                     (last_log_term, command) = self.log[last_log_index]
                     if last_log_index <= msg['last_log_index'] or last_log_term <= msg['last_log_term']:
