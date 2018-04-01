@@ -66,6 +66,13 @@ class StateMachine:
         self.key_value_store = dict()
 
     def init_next_idx_to_send(self):
+        """
+        The leader maintains a nextIndex for each follower,
+which is the index of the next log entry the leader will
+send to that follower. When a leader first comes to power,
+it initializes all nextIndex values to the index just after the
+last one in its log (11 in Figure 7).
+        """
         next_idx_to_send = {}
         if self.state == 'leader':
             for server_id in self.other_server_ids:
@@ -256,7 +263,7 @@ class StateMachine:
                 # TODO if receive AppendEntries RPC from leader
                 # if in RPC, leader's term is at least as large as self.cur_term => become_follower
                 # if term < self.cur_term, then reject RPC and continue as a candidate
-                elif vote['type'] == 'heartbeat' or vote['type'] == 'append_entry':
+                elif vote['type'] == 'heartbeat' or vote['type'] == 'append_entry_request':
                     if self.current_term < vote['term']:
                         self.become_follower(vote['term'], vote['leader'])
                         return
@@ -331,16 +338,18 @@ class StateMachine:
         if raw_msg:
             msg = json.loads(raw_msg)
             # handle client's requests
+            # 1. apply to own log, modify self.last_applied
+            # 2. send RPC request, apply
+            # 3. parse responses, if N/2+1, then commit, then ask them to commit
             if msg['type'] == 'get':
                 # log replication
                 key = msg['key']
-                entry = self.append_new_log_entry('get', self.current_term, msg['MID'])
+                entry = self.append_new_log_entry('get', msg['MID'])
                 self.issue_append_entries_RPC(entry)
-
-                # TODO handle RPC response from the followers, make sure they actually commited before moving on
+                # handle RPC response from the followers, make sure they actually commited before moving on
+                self.handle_ApplyEntriesRPC_response(entry)
                 # if no response after certain time, resend to them
-                
-
+                # response to client
                 value = self.key_value_store.get(key) # returns None if not exist
                 # if the key doesn't exist, return empty string, in project spec
                 if value is None:
@@ -351,21 +360,17 @@ class StateMachine:
             # handle put from client
             elif msg['type'] == 'put':
                 # append this command to our own log
-                entry = self.append_new_log_entry('put', self.current_term, msg['MID'])
+                entry = self.append_new_log_entry('put', msg['MID'])
                 # requests the followers to append this command to their logs
                 self.issue_append_entries_RPC(entry)
-
-                # 1. apply to own log, modify self.last_applied
-                # 2. send RPC request, apply
-                # 3. parse responses, if N/2+1, then commit, then ask them to commit
-                
-                # TODO handle RPC response from the followers, make sure they actually commited before moving on
+                # handle RPC response from the followers, make sure they actually commited before moving on
+                self.handle_ApplyEntriesRPC_response(entry)
                 # if no response after certain time, resend to them
-
                 # put the key and value into the map
                 self.key_value_store[msg['key']] = msg['value']
                 response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
                                       'type': 'ok', 'MID': msg['MID']}
+                sock.send(response_to_client)
 
 
     def leader_send_regular_heartbeat(self):
@@ -377,11 +382,15 @@ class StateMachine:
     """
     Appends new command to its log as a new entry
     """
-    def append_new_log_entry(self, command, term, mid):
+    def append_new_log_entry(self, command, mid):
         # TODO should entry contain MID ?
-        entry = (mid, command, term)
-        if entry not in self.log:
-            self.log.append(entry)
+        # TODO do i care about duplicate?
+        entry = (mid, command, self.current_term)
+        #if entry not in self.log:
+
+        self.log.append(entry)
+        self.last_applied_log_entry += 1
+
         return entry
 
     """
@@ -391,16 +400,74 @@ class StateMachine:
     def issue_append_entries_RPC(self, entry):
         entries = []
         entries.append(entry)
+        (mid, command, term) = entry
+        last_log_entry_idx = self.last_applied_log_entry - 1
+        (last_mid, last_command, last_term) = self.log[last_log_entry_idx]
         for server_id in self.other_server_ids:
-            append_entry_RPC = {'src': self.id, 'dst': server_id, 'leader': self.id, 'type': 'append_entry',
-                                'MID': str(uuid.UUID), 'term': self.current_term,
-                                'prev_log_idx': self.highest_entry_commited_index, #TODO not sure about these three
-                                'prev_log_term': self.last_applied_log_entry,
-                                'entries': entries, 'leader_commit': self.commit_idx}
+            append_entry_RPC = {'src': self.id, 'dst': server_id, 'leader': self.id, 'type': 'append_entry_request',
+                                'MID': mid, 'term': self.current_term,
+                                'prev_log_idx': last_log_entry_idx,
+                                'prev_log_term': last_term,
+                                'entries': entries, 'leader_commit': self.commit_idx,
+                                'command': command}
             sock.send(append_entry_RPC)
 
 
+    """
+    For leader: Handle ApplyEntriesRPC response returned from followers 
+    """
+    def handle_ApplyEntriesRPC_response(self, entry):
+        global sock, SOCK_RECV_SIZE
+        N = len(self.other_server_ids) + 1
+        majority = N / 2 + 1
 
+        servers_applied = []
+        servers_to_resend = []
+
+        while len(servers_applied) < majority:
+            raw_msg = sock.recv(SOCK_RECV_SIZE)
+            if len(raw_msg) == 0: break
+            msg = json.loads(raw_msg)
+            if msg['type'] == 'append_entry_response':
+                # follower accepted the request
+                if msg['accept_request']:
+                    servers_applied.append(msg['src'])
+                # find our why the RPC is rejected
+                else:
+                    servers_to_resend.append(msg['src'])
+                    if msg['term'] > self.current_term:
+                        # TODO not sure
+                        self.become_follower(msg['term'], msg['leader'])
+                        return
+                        # TODO Follower replies false if log doesn't contain an entry at prevLogIndex
+                        # TODO whose term matches prevLogTerm (5.3) ??????????
+         # find all servers that did not accept the RPC
+         #for server_id in self.other_server_ids:
+         #    if server_id not in servers_applied:
+         #        servers_to_resend.append(server_id)
+        self.resend_AppendEntryRPC_request(servers_to_resend, entry)
+
+
+    """
+    Resend AppendEntryRPC request to a particular server
+    """
+    def resend_AppendEntryRPC_request(self, servers_to_resend, entry):
+        # TODO make this have intervals, and keep resending
+        #while len(servers_to_resend) > 0:
+        for server_id in servers_to_resend:
+            entries = []
+            entries.append(entry)
+            (mid, command, term) = entry
+            last_log_entry_idx = self.last_applied_log_entry - 1
+            (last_mid, last_command, last_term) = self.log[last_log_entry_idx]
+            append_entry_RPC = {'src': self.id, 'dst': server_id, 'leader': self.id,
+                                'type': 'append_entry_request',
+                                'MID': mid, 'term': self.current_term,
+                                'prev_log_idx': last_log_entry_idx,
+                                'prev_log_term': last_term,
+                                'entries': entries, 'leader_commit': self.commit_idx,
+                                'command': command}
+            sock.send(append_entry_RPC)
 
 
 """
