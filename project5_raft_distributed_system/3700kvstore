@@ -326,8 +326,7 @@ last one in its log (11 in Figure 7).
                 # delete existing entry and all following
                 while len(self.log) != idx:
                     self.log.pop(idx)
-                # TODO do we reply with something here????
-                break
+                # reply success after successfully following this step and the subsequent ones
 
             # append any new entries not in the log
             if (mid, command, term) not in self.log:
