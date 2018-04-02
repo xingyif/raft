@@ -138,7 +138,7 @@ last one in its log (11 in Figure 7).
                     response_to_vote = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id,
                                         'type': 'response_vote',
                                         'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
-                    sock.send(response_to_vote)
+                    sock.send(json.dumps(response_to_vote))
                     print("act_as_follower, refused to vote for %s" % str(msg['src']))
 
                     return
@@ -158,14 +158,14 @@ last one in its log (11 in Figure 7).
                         # TODO who should be the leader
                         response_to_vote = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id, 'type': 'response_vote',
                                 'MID': msg['MID'], 'term': msg['term'], 'vote_granted': True}
-                        sock.send(response_to_vote)
+                        sock.send(json.dumps(response_to_vote))
                         print("act_as_follower, granted vote for %s" % str(msg['src']))
                     else:
                         # refuse to vote
                         response_to_vote = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id,
                                             'type': 'response_vote',
                                             'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
-                        sock.send(response_to_vote)
+                        sock.send(json.dumps(response_to_vote))
                         print("act_as_follower, refused to vote for %s because their term/index isn't higher" % str(msg['src']))
 
                 else:
@@ -173,7 +173,7 @@ last one in its log (11 in Figure 7).
                     response_to_vote = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id,
                                         'type': 'response_vote',
                                         'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
-                    sock.send(response_to_vote)
+                    sock.send(json.dumps(response_to_vote))
                     print("act_as_follower, refused to vote for %s because we voted" % str(msg['src']))
 
             # handling client's requests, redirect clients to leader
@@ -181,11 +181,12 @@ last one in its log (11 in Figure 7).
                 # TODO if don't know who the leader is, then return fail?????????????????
                 if self.leader_id is None:
                     response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'fail', 'MID': msg['MID']}
+
                     print("act_as_follower, got msg from client (%s) but returned fail because leader NONE" % str(msg['src']))
                 else:
                     response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'redirect', 'MID': msg['MID']}
                     print("act_as_follower, got msg from client (%s) and redirect to leader (%s)" % (str(msg['src']), self.leader_id))
-                sock.send(response_to_client)
+                sock.send(json.dumps(response_to_client))
 
             if msg['type'] == 'append_entry_request':
                 self.handle_AppendEntriesRPC_request(msg)
@@ -325,13 +326,13 @@ last one in its log (11 in Figure 7).
         for (mid, command, term) in entries:
             # term < currentTerm, then return False
             if term < self.current_term:
-                sock.send(response)
+                sock.send(json.dumps(response))
                 break
 
             # entry at prevLogIndex doesn't have term that matches prev_log_term
             (mid_prev, command_prev, term_prev) = self.log[msg['prev_log_idx']]
             if term_prev != msg['prev_log_term']:
-                sock.send(response)
+                sock.send(json.dumps(response))
                 break
 
             # existing entry conflicts with a new one
@@ -354,7 +355,7 @@ last one in its log (11 in Figure 7).
 
             response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
                         'type': 'append_entry_response', 'MID': msg['MID'], 'accept_request': True}
-            sock.send(response)
+            sock.send(json.dumps(response))
 
     # send heartbeat
     # handle client requests, responde to clients
@@ -389,7 +390,7 @@ last one in its log (11 in Figure 7).
                     value = ''
                 response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
                                       'type': 'ok', 'MID': msg['MID'], 'value': value}
-                sock.send(response_to_client)
+                sock.send(json.dumps(response_to_client))
             # handle put from client
             elif msg['type'] == 'put':
                 # append this command to our own log
@@ -403,14 +404,14 @@ last one in its log (11 in Figure 7).
                 self.key_value_store[msg['key']] = msg['value']
                 response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
                                       'type': 'ok', 'MID': msg['MID']}
-                sock.send(response_to_client)
+                sock.send(json.dumps(response_to_client))
 
 
     def leader_send_regular_heartbeat(self):
         for server_id in self.other_server_ids:
             regular_heartbeat = {'src': self.id, 'dst': server_id, 'leader': self.id, 'type': 'heartbeat',
                                  'MID': str(uuid.UUID), 'term': self.current_term}
-            sock.send(regular_heartbeat)
+            sock.send(json.dumps(regular_heartbeat))
 
     """
     Appends new command to its log as a new entry
@@ -443,7 +444,7 @@ last one in its log (11 in Figure 7).
                                 'prev_log_term': last_term,
                                 'entries': entries, 'leader_commit': self.commit_idx,
                                 'command': command}
-            sock.send(append_entry_RPC)
+            sock.send(json.dumps(append_entry_RPC))
 
 
     """
@@ -500,7 +501,7 @@ last one in its log (11 in Figure 7).
                                 'prev_log_term': last_term,
                                 'entries': entries, 'leader_commit': self.commit_idx,
                                 'command': command}
-            sock.send(append_entry_RPC)
+            sock.send(json.dumps(append_entry_RPC))
 
 
 """
