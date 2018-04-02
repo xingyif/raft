@@ -106,29 +106,29 @@ last one in its log (11 in Figure 7).
 
     def act_as_follower(self):
         global sock, SOCK_RECV_SIZE
-        # TODO handle request_vote messages, reset RPC
-        
+
+        print("acting as a follower!")
         # if election timeout
         cur_time = time.time()
         # when timed out
         if cur_time - self.last_RPC_time >= self.election_timeout:
-            #TODO Rules for Servers, Followers
+            # Rules for Servers, Followers
             if self.voted_for is None:
                 print("%s becoming candidate" % str(self.id))
                 self.become_candidate()
                 return
-            #else:
-
-
+            # else:
 
         raw_msg = sock.recv(SOCK_RECV_SIZE)
+        print("act_as_follower, got raw_msg (%s)" % str(raw_msg))
         if raw_msg:
             self.election_timeout = randint(150, 300)
             self.last_RPC_time = time.time()
             msg = json.loads(raw_msg)
             # receiving heart beat, reset RPC
             if msg['type'] == 'heartbeat':
-               self.leader_id = msg['leader']
+                print("act_as_follower, got heartbeat from (%s)" % msg['src'])
+                self.leader_id = msg['leader']
 
             # Election Phase, handling vote
             if msg['type'] == 'request_vote':
@@ -139,6 +139,8 @@ last one in its log (11 in Figure 7).
                                         'type': 'response_vote',
                                         'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
                     sock.send(response_to_vote)
+                    print("act_as_follower, refused to vote for %s" % str(msg['src']))
+
                     return
 
                 # if we're at a lower term, then we should update our term and be ready to grant vote
@@ -157,25 +159,38 @@ last one in its log (11 in Figure 7).
                         response_to_vote = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id, 'type': 'response_vote',
                                 'MID': msg['MID'], 'term': msg['term'], 'vote_granted': True}
                         sock.send(response_to_vote)
+                        print("act_as_follower, granted vote for %s" % str(msg['src']))
+                    else:
+                        # refuse to vote
+                        response_to_vote = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id,
+                                            'type': 'response_vote',
+                                            'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
+                        sock.send(response_to_vote)
+                        print("act_as_follower, refused to vote for %s because their term/index isn't higher" % str(msg['src']))
+
                 else:
                     # refuse to vote
                     response_to_vote = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id,
                                         'type': 'response_vote',
                                         'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
                     sock.send(response_to_vote)
+                    print("act_as_follower, refused to vote for %s because we voted" % str(msg['src']))
 
             # handling client's requests, redirect clients to leader
-            if msg['type'] == 'get':
+            if msg['type'] == 'get' or msg['type'] == 'put':
                 # TODO if don't know who the leader is, then return fail?????????????????
                 if self.leader_id is None:
                     response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'fail', 'MID': msg['MID']}
+                    print("act_as_follower, got msg from client (%s) but returned fail because leader NONE" % str(msg['src']))
                 else:
                     response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'redirect', 'MID': msg['MID']}
+                    print("act_as_follower, got msg from client (%s) and redirect to leader (%s)" % (str(msg['src']), self.leader_id))
                 sock.send(response_to_client)
 
             if msg['type'] == 'append_entry_request':
                 self.handle_AppendEntriesRPC_request(msg)
         # TODO received nothing
+        print("act_as_follower, WARNING, raw_msg is empty (%s)" % raw_msg)
 
     """
     Becomes a candidate, increments current_term, and votes for itself, send vote request to other servers
@@ -494,8 +509,10 @@ The main program
 def main():
     global last, my_id, replica_ids, sock, SOCK_RECV_SIZE
 
-
     my_server = StateMachine(my_id, replica_ids)
+    print("in main, my_id (%s)" % str(my_id))
+    for id in replica_ids:
+        print("replicate id (%s)" % id)
     my_server.run()
 
     while True:
