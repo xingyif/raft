@@ -166,16 +166,15 @@ last one in its log (11 in Figure 7).
 
             # handling client's requests, redirect clients to leader
             if msg['type'] == 'get':
-                # TODO if don't know who the leader is, then return fail
-                response_to_client = {}
+                # TODO if don't know who the leader is, then return fail?????????????????
                 if self.leader_id is None:
                     response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'fail', 'MID': msg['MID']}
                 else:
                     response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'redirect', 'MID': msg['MID']}
                 sock.send(response_to_client)
 
-            if msg['type'] == 'append_entry':
-                self.receive_append_entry()
+            if msg['type'] == 'append_entry_request':
+                self.handle_AppendEntriesRPC_request(msg)
         # TODO received nothing
 
     """
@@ -291,37 +290,57 @@ last one in its log (11 in Figure 7).
         self.voted_for = None
         self.votes_count = 0
 
-    def receive_append_entry(self, msg):
+    """
+    Replies to the leader's AppendEntriesRPC request
+    1. Reply false if term < currentTerm (5.1)
+    2. Reply false if log doesn't contain an entry at prevLogIndex
+        whose term matches prevLogTerm (5.3)
+    3. If an existing entry conflicts with a new one (same index
+        but different terms), delete the existing entry and all that
+        follow it (5.3)
+    4. Append any new entries not already in the log
+    5. If leaderCommit > commitIndex, set commitIndex =
+        min(leaderCommit, index of last new entry)
+    """
+    def handle_AppendEntriesRPC_request(self, msg):
         response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
-             'type': 'append_entry', 'MID': msg['MID'], 'success': False}
-        #truple for getting entry values
-        (mid, command, term) = msg['entries']
-        #term < currentTerm
-        if term < self.current_term:
-             sock.send(response)
-             return
-        (mid_prev, command_prev, term_prev) = self.log[msg['prev_log_idx']]
-        if term_prev != msg['prev_log_term']:
-            #entry at prevLogIndex doesn't have term that matches prev_log_term
+                    'type': 'append_entry_response', 'MID': msg['MID'], 'accept_request': False}
+        # tuple for getting entry values
+        entries = msg['entries']
+        for (mid, command, term) in entries:
+            # term < currentTerm, then return False
+            if term < self.current_term:
+                sock.send(response)
+                break
+
+            # entry at prevLogIndex doesn't have term that matches prev_log_term
+            (mid_prev, command_prev, term_prev) = self.log[msg['prev_log_idx']]
+            if term_prev != msg['prev_log_term']:
+                sock.send(response)
+                break
+
+            # existing entry conflicts with a new one
+            idx = msg['prev_log_idx'] + 1 # TODO prev entry or ALL entries?
+            (my_mid, my_command, my_term) = self.log[idx]
+            if my_term != term:
+                # delete existing entry and all following
+                while len(self.log) != idx:
+                    self.log.pop(idx)
+                # TODO do we reply with something here????
+                break
+
+            # append any new entries not in the log
+            if (mid, command, term) not in self.log:
+                self.log.append((mid, command, term))
+
+            # If leaderCommit > commitIndex, set commitIndex =
+            # min(leaderCommit, index of last new entry)
+            if msg['leader_commit'] > self.commit_idx:
+                self.commit_idx = min(msg['leader_commit'], idx) # TODO is this really the index of last new entry???
+
+            response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
+                        'type': 'append_entry_response', 'MID': msg['MID'], 'accept_request': True}
             sock.send(response)
-            return
-        idx = msg['prev_log_idx'] + 1
-        #existing entry conflicts with a new one
-        (my_mid, my_command, my_term) = self.log[idx]
-        if my_term != term:
-            #delete existing entry and all following
-            while len(self.log) != idx:
-                self.log.pop(idx)
-            #do we reply with something here???? TODO
-            return
-        #append any new entries not in the log
-        self.log.append(msg['entries'])
-        lead_commit = msg['leader_commit']
-        if msg['leader_commit'] > self.commit_idx:
-            self.commit_idx = min(msg['leader_commit'], idx)
-        response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
-             'type': 'append_entry', 'MID': msg['MID'], 'success': True}
-        sock.send(response)
 
     # send heartbeat
     # handle client requests, responde to clients
@@ -347,7 +366,7 @@ last one in its log (11 in Figure 7).
                 entry = self.append_new_log_entry('get', msg['MID'])
                 self.issue_append_entries_RPC(entry)
                 # handle RPC response from the followers, make sure they actually commited before moving on
-                self.handle_ApplyEntriesRPC_response(entry)
+                self.handle_AppendEntriesRPC_response(entry)
                 # if no response after certain time, resend to them
                 # response to client
                 value = self.key_value_store.get(key) # returns None if not exist
@@ -364,7 +383,7 @@ last one in its log (11 in Figure 7).
                 # requests the followers to append this command to their logs
                 self.issue_append_entries_RPC(entry)
                 # handle RPC response from the followers, make sure they actually commited before moving on
-                self.handle_ApplyEntriesRPC_response(entry)
+                self.handle_AppendEntriesRPC_response(entry)
                 # if no response after certain time, resend to them
                 # put the key and value into the map
                 self.key_value_store[msg['key']] = msg['value']
@@ -416,7 +435,7 @@ last one in its log (11 in Figure 7).
     """
     For leader: Handle ApplyEntriesRPC response returned from followers 
     """
-    def handle_ApplyEntriesRPC_response(self, entry):
+    def handle_AppendEntriesRPC_response(self, entry):
         global sock, SOCK_RECV_SIZE
         N = len(self.other_server_ids) + 1
         majority = N / 2 + 1
