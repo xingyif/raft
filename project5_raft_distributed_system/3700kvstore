@@ -112,9 +112,12 @@ last one in its log (11 in Figure 7).
         cur_time = time.time()
         # when timed out
         if cur_time - self.last_RPC_time >= self.election_timeout:
+            print("in act_as_follower, election TIMEOUT!")
+            time.sleep(5)
             # Rules for Servers, Followers
             if self.voted_for is None:
                 print("%s becoming candidate" % str(self.id))
+                time.sleep(5)
                 self.become_candidate()
                 return
             # else:
