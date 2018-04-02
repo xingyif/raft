@@ -202,6 +202,8 @@ last one in its log (11 in Figure 7).
     """
     def become_candidate(self):
         global sock, SOCK_RECV_SIZE
+        print("becoming a candidate")
+        time.sleep(3)
         # become a candidate
         self.state = 'candidate'
         # reset votes_count from last election
@@ -238,6 +240,7 @@ last one in its log (11 in Figure 7).
                                 'MID': str(uuid.UUID), 'term': self.current_term, 'last_log_idx': last_log_index,
                                 'last_log_term': last_log_term}
             sock.send(json.dumps(request_for_vote))
+            print("in request_vote_RPC, i (%s) send replica (%s) a request_vote" % (str(self.id), str(server_id)))
 
     """
     process the received votes:
@@ -271,11 +274,15 @@ last one in its log (11 in Figure 7).
                         if vote['vote_granted']:
                             # collect vote
                             self.votes_count += 1
+                            print("in process_vote_results, i (%s) got vote from (%s)" % (str(self.id), str(vote['src'])))
+
                         else:
                             # they didn't vote for me
+                            print("in process_vote_results, i (%s) DIDNOT got vote from (%s)" % (str(self.id), str(vote['src'])))
                             pass
                     # if received from a machine with an at least as high term
                     elif self.current_term <= vote['term']:
+                        print("in process_vote_results, i (%s) become a FOLLOWER because (%s) has a higher term" % (str(self.id), str(vote['src'])))
                         self.become_follower(vote['term'], vote['leader']) # update term TODO what is vote['leader;] is dead
                         return
                 # if we received a heartbeat from a new leader, then abort election process
@@ -284,6 +291,7 @@ last one in its log (11 in Figure 7).
                 # if term < self.cur_term, then reject RPC and continue as a candidate
                 elif vote['type'] == 'heartbeat' or vote['type'] == 'append_entry_request':
                     if self.current_term < vote['term']:
+                        print("in process_vote_results, i (%s) become a FOLLOWER received heartbeat from leader (%s)" % (str(self.id), str(vote['src'])))
                         self.become_follower(vote['term'], vote['leader'])
                         return
                 # if other requests me to vote for them while I am a candidate
@@ -292,17 +300,23 @@ last one in its log (11 in Figure 7).
                         response_to_vote = {'src': self.id, 'dst': vote['src'], 'leader': 'FFFF', 'type': 'response_vote',
                                 'MID': vote['MID'], 'term': self.current_term, 'vote_granted': False}
                         sock.send(json.dumps(response_to_vote))
+                        print("in process_vote_results, i (%s) refused to vote for (%s) because i am a candidate!" % (str(self.id), str(vote['src'])))
+
                 
         # checks if received enough votes
         # if gathered majority votes, become leader and send heart beats
         #if self.votes_count >= majority_votes:
         #    self.become_leader()
         # split vote senario
+        print("in process_vote_results, SPLIT VOTE, i (%s) didn't get enough votes, restart election" % str(self.id))
         self.become_candidate()
         print('became candidate')
 
 
     def become_leader(self):
+        print("become_leader, id (%s)" % str(self.id))
+        time.sleep(3)
+
         self.state = 'leader'
         self.next_idx_to_send = self.init_next_idx_to_send()
         self.highest_entries_replicated = self.highest_entries_replicated()
@@ -331,20 +345,28 @@ last one in its log (11 in Figure 7).
             # term < currentTerm, then return False
             if term < self.current_term:
                 sock.send(json.dumps(response))
+                print("handle_AppendEntriesRPC_request, i(%s) REFUSED TO appended new entry from (%s)" % (
+                str(self.id), str(msg['src'])))
+                time.sleep(1)
                 break
 
+            # Follower replies false if log doesn't contain an entry at prevLogIndex
+            # whose term matches prevLogTerm (5.3)
             # entry at prevLogIndex doesn't have term that matches prev_log_term
             (mid_prev, command_prev, term_prev) = self.log[msg['prev_log_idx']]
             if term_prev != msg['prev_log_term']:
                 sock.send(json.dumps(response))
+                print("handle_AppendEntriesRPC_request, i(%s) REFUSED TO appended new entry from (%s)" % (
+                str(self.id), str(msg['src'])))
+                time.sleep(1)
                 break
 
             # existing entry conflicts with a new one
-            idx = msg['prev_log_idx'] + 1 # TODO prev entry or ALL entries?
+            idx = msg['prev_log_idx'] # TODO prev entry or ALL entries?
             (my_mid, my_command, my_term) = self.log[idx]
             if my_term != term:
                 # delete existing entry and all following
-                while len(self.log) != idx:
+                while len(self.log) > idx:
                     self.log.pop(idx)
                 # reply success after successfully following this step and the subsequent ones
 
@@ -355,11 +377,13 @@ last one in its log (11 in Figure 7).
             # If leaderCommit > commitIndex, set commitIndex =
             # min(leaderCommit, index of last new entry)
             if msg['leader_commit'] > self.commit_idx:
-                self.commit_idx = min(msg['leader_commit'], idx) # TODO is this really the index of last new entry???
+                self.commit_idx = min(msg['leader_commit'], len(self.log) - 1) # TODO is this really the index of last new entry???
 
             response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
                         'type': 'append_entry_response', 'MID': msg['MID'], 'accept_request': True}
             sock.send(json.dumps(response))
+            print("handle_AppendEntriesRPC_request, i(%s) appended new entry from (%s)" % (str(self.id), str(msg['src'])))
+            time.sleep(1)
 
     # send heartbeat
     # handle client requests, responde to clients
@@ -371,6 +395,7 @@ last one in its log (11 in Figure 7).
         s = sched.scheduler(time.time, time.sleep)
         s.enter(0.15, 1, self.leader_send_regular_heartbeat(), ())
         s.run()
+        print("act_as_leader, scheduled sending heart beat i am (%s)" % self.id)
 
         raw_msg = sock.recv(SOCK_RECV_SIZE)
         if raw_msg:
@@ -380,6 +405,8 @@ last one in its log (11 in Figure 7).
             # 2. send RPC request, apply
             # 3. parse responses, if N/2+1, then commit, then ask them to commit
             if msg['type'] == 'get':
+                print("act_as_leader, i am (%s), got get request from client" % self.id)
+
                 # log replication
                 key = msg['key']
                 entry = self.append_new_log_entry('get', msg['MID'])
@@ -395,8 +422,13 @@ last one in its log (11 in Figure 7).
                 response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
                                       'type': 'ok', 'MID': msg['MID'], 'value': value}
                 sock.send(json.dumps(response_to_client))
+                print("act_as_leader, i am (%s), respond GET request to client" % self.id)
+                time.sleep(3)
+
             # handle put from client
             elif msg['type'] == 'put':
+                print("act_as_leader, i am (%s), got put request from client" % self.id)
+
                 # append this command to our own log
                 entry = self.append_new_log_entry('put', msg['MID'])
                 # requests the followers to append this command to their logs
@@ -409,6 +441,8 @@ last one in its log (11 in Figure 7).
                 response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
                                       'type': 'ok', 'MID': msg['MID']}
                 sock.send(json.dumps(response_to_client))
+                print("act_as_leader, i am (%s), respond PUT request to client" % self.id)
+                time.sleep(3)
 
 
     def leader_send_regular_heartbeat(self):
@@ -428,7 +462,7 @@ last one in its log (11 in Figure 7).
 
         self.log.append(entry)
         self.last_applied_log_entry += 1
-
+        print("in append_new_log_entry, appended command(%s) to log, i(%s)" % (str(command), str(self.id)))
         return entry
 
     """
@@ -449,6 +483,7 @@ last one in its log (11 in Figure 7).
                                 'entries': entries, 'leader_commit': self.commit_idx,
                                 'command': command}
             sock.send(json.dumps(append_entry_RPC))
+        print("in issue_append_entries_RPC, send all other servers appenEntryRPC, i(%s)" % str(self.id))
 
 
     """
@@ -470,15 +505,21 @@ last one in its log (11 in Figure 7).
                 # follower accepted the request
                 if msg['accept_request']:
                     servers_applied.append(msg['src'])
+                    print("handle_AppendEntriesRPC_response, i am (%s), got (%s) to append entry to its log" % (str(self.id), str(msg['src'])))
+
                 # find our why the RPC is rejected
                 else:
+                    print("handle_AppendEntriesRPC_response, i am (%s), got (%s) rejected my append entry request" % (str(self.id), str(msg['src'])))
+                    time.sleep(3)
+
                     servers_to_resend.append(msg['src'])
                     if msg['term'] > self.current_term:
                         # TODO not sure
                         self.become_follower(msg['term'], msg['leader'])
+                        print("handle_AppendEntriesRPC_response, i am (%s), step down to a follower from a leader" % self.id)
+                        time.sleep(3)
                         return
-                        # TODO Follower replies false if log doesn't contain an entry at prevLogIndex
-                        # TODO whose term matches prevLogTerm (5.3) ??????????
+
          # find all servers that did not accept the RPC
          #for server_id in self.other_server_ids:
          #    if server_id not in servers_applied:
