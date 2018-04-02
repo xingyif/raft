@@ -111,6 +111,8 @@ last one in its log (11 in Figure 7).
         # if election timeout
         cur_time = time.time()
         # when timed out
+        print("DIFFERENCE %d and election %d" % (cur_time - self.last_RPC_time, self.election_timeout))
+        time.sleep(5)
         if cur_time - self.last_RPC_time >= self.election_timeout:
             print("in act_as_follower, election TIMEOUT!")
             time.sleep(5)
@@ -143,6 +145,8 @@ last one in its log (11 in Figure 7).
 
             self.election_timeout = randint(150, 300)
             self.last_RPC_time = time.time()
+            print("RPC RESET")
+            time.sleep(5)
             # receiving heart beat, reset RPC
             if msg['type'] == 'heartbeat':
                 print("act_as_follower, got heartbeat from (%s)" % msg['src'])
