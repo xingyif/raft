@@ -241,6 +241,7 @@ last one in its log (11 in Figure 7).
         for server_id in self.other_server_ids:
             #indexed by 1
             last_log_index = len(self.log) - 1
+            print("in request_vote_rpc, last_log_idx %d" % last_log_index)
             (last_log_term, command) = self.log[last_log_index]
             #TODO consider getting rid of the leader field
             request_for_vote = {'src': self.id, 'dst': server_id, 'leader': 'FFFF', 'type': 'request_vote',
