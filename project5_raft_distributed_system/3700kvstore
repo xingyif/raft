@@ -43,7 +43,7 @@ class StateMachine:
 
     def __init__(self, id, other_server_ids):
         self.id = id
-        self.leader_id = None
+        self.leader_id = 'FFFF'
         # leader, candidate, follower
         self.state = 'follower'
         # others can be different, if find larger, becomes a follower and update current_term; if find smaller, return error
@@ -122,9 +122,24 @@ last one in its log (11 in Figure 7).
         raw_msg = sock.recv(SOCK_RECV_SIZE)
         print("act_as_follower, got raw_msg (%s)" % str(raw_msg))
         if raw_msg:
+            msg = json.loads(raw_msg)
+
+            # check if msg is from client, if it is check who the leader is and response
+            # handling client's requests, redirect clients to leader
+            if msg['type'] == 'get' or msg['type'] == 'put':
+                if self.leader_id == 'FFFF':
+                    response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'fail',
+                                          'MID': msg['MID']}
+                    print("act_as_follower, got msg from client (%s) but returned fail because leader is 'FFFF'" % str(msg['src']))
+                else:
+                    response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
+                                          'type': 'redirect', 'MID': msg['MID']}
+                    print("act_as_follower, got msg from client (%s) and redirect to leader (%s)" % (str(msg['src']), self.leader_id))
+                sock.send(json.dumps(response_to_client))
+                return
+
             self.election_timeout = randint(150, 300)
             self.last_RPC_time = time.time()
-            msg = json.loads(raw_msg)
             # receiving heart beat, reset RPC
             if msg['type'] == 'heartbeat':
                 print("act_as_follower, got heartbeat from (%s)" % msg['src'])
@@ -176,22 +191,11 @@ last one in its log (11 in Figure 7).
                     sock.send(json.dumps(response_to_vote))
                     print("act_as_follower, refused to vote for %s because we voted" % str(msg['src']))
 
-            # handling client's requests, redirect clients to leader
-            if msg['type'] == 'get' or msg['type'] == 'put':
-                # TODO if don't know who the leader is, then return fail?????????????????
-                if self.leader_id is None:
-                    response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'fail', 'MID': msg['MID']}
-
-                    print("act_as_follower, got msg from client (%s) but returned fail because leader NONE" % str(msg['src']))
-                else:
-                    response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'redirect', 'MID': msg['MID']}
-                    print("act_as_follower, got msg from client (%s) and redirect to leader (%s)" % (str(msg['src']), self.leader_id))
-                sock.send(json.dumps(response_to_client))
-
             if msg['type'] == 'append_entry_request':
                 self.handle_AppendEntriesRPC_request(msg)
-        # TODO received nothing
-        print("act_as_follower, WARNING, raw_msg is empty (%s)" % raw_msg)
+        else:
+            # TODO received nothing
+            print("act_as_follower, WARNING, raw_msg is empty (%s)" % raw_msg)
 
     """
     Becomes a candidate, increments current_term, and votes for itself, send vote request to other servers
@@ -214,7 +218,7 @@ last one in its log (11 in Figure 7).
         self.votes_count += 1
         self.voted_for = self.id
         # set leader id to None
-        self.leader_id = None
+        self.leader_id = 'FFFF'
         #reset election timer
         self.election_timeout = randint(150, 300)
         start_election_time = time.time()
