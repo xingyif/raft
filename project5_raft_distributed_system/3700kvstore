@@ -361,7 +361,7 @@ last one in its log (11 in Figure 7).
 
         self.state = 'leader'
         self.next_idx_to_send = self.init_next_idx_to_send()
-        self.highest_entries_replicated = self.highest_entries_replicated()
+        self.highest_entries_replicated = self.init_highest_entries_replicated()
         self.leader_id = self.id
         self.voted_for = None
         self.votes_count = 0
