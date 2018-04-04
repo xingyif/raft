@@ -294,8 +294,8 @@ last one in its log (11 in Figure 7).
                 print("in process_vote!!!!!!!!!!!!!!!!!!!!!!!! %s did not get anyting, raw_msg %s" % (self.id, raw_vote))
                 break
             else:
-                self.last_RPC_time = time.time() * TIME_SCALE
-                self.election_timeout = RAND_ELECTION_TIMEOUT
+                #self.last_RPC_time = time.time() * TIME_SCALE
+                #self.election_timeout = RAND_ELECTION_TIMEOUT
                 # received some response
                 vote = json.loads(raw_vote)
                 # {'src': self.id, 'dst': server_id, 'leader': 'FFFF', 'type': 'response_vote', 'term': self.current_term, 'vote_granted': True}
