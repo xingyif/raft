@@ -224,8 +224,7 @@ last one in its log (11 in Figure 7).
     """
     def become_candidate(self):
         global sock, SOCK_RECV_SIZE
-        self.print_msg("becoming a candidate")
-        #time.sleep(3)
+        self.print_msg("i %s becoming a candidate" % self.id, True)
         # become a candidate
         self.state = 'candidate'
         # reset votes_count from last election
@@ -335,14 +334,14 @@ last one in its log (11 in Figure 7).
                         return
                 # if other requests me to vote for them while I am a candidate
                 elif vote['type'] == 'request_vote':
-                    if self.current_term > vote['term']:
+                    if self.current_term >= vote['term']:
                         response_to_vote = {'src': self.id, 'dst': vote['src'], 'leader': 'FFFF', 'type': 'response_vote',
                                 'MID': vote['MID'], 'term': self.current_term, 'vote_granted': False}
                         sock.send(json.dumps(response_to_vote))
                         print("in process_vote_results, i %s REFUSED to vote for %s" % (self.id, vote['src']))
                         print("in process_vote_results, i %s current all votes %d" % (self.id, self.votes_count))
 
-                    self.print_msg("in process_vote_results, i (%s) refused to vote for (%s) because i am a candidate!" % (str(self.id), str(vote['src'])))
+                    self.print_msg("in process_vote_results, i (%s) refused to vote for (%s) because i am a candidate!" % (str(self.id), str(vote['src'])), True)
 
                 
         # checks if received enough votes
@@ -350,7 +349,7 @@ last one in its log (11 in Figure 7).
         #if self.votes_count >= majority_votes:
         #    self.become_leader()
         # split vote senario
-        self.print_msg("in process_vote_results, SPLIT VOTE, i (%s) didn't get enough votes, restart election" % str(self.id))
+        self.print_msg("in process_vote_results, SPLIT VOTE, i (%s) didn't get enough votes, restart election, my cur votes %d" % (str(self.id), self.votes_count), True)
         self.become_candidate()
         self.print_msg('became candidate')
 
