@@ -16,10 +16,10 @@ type - The type of the message.
 
 
 Send/Receive:
-Each of your replicas will connect to a single domain socket (the way a server 
-would connect to a single Ethernet cable). A replica will send and receive all 
-messages over this socket (i.e. messages to/from other replicas, as well as 
-messages to/from clients). 
+Each of your replicas will connect to a single domain socket (the way a server
+would connect to a single Ethernet cable). A replica will send and receive all
+messages over this socket (i.e. messages to/from other replicas, as well as
+messages to/from clients).
 """
 
 
@@ -119,11 +119,10 @@ last one in its log (11 in Figure 7).
 
         self.print_msg("acting as a follower!")
         # if election timeout
-        cur_time = time.time() * TIME_SCALE
         # when timed out
-        self.print_msg("DIFFERENCE %d and election %d" % (cur_time - self.last_RPC_time, self.election_timeout))
+        self.print_msg("DIFFERENCE %d and election %d" % (time.time() * TIME_SCALE - self.last_RPC_time, self.election_timeout))
         #time.sleep(5)
-        if cur_time - self.last_RPC_time >= self.election_timeout:
+        if time.time() * TIME_SCALE - self.last_RPC_time >= self.election_timeout:
             self.print_msg("in act_as_follower, election TIMEOUT!")
             #time.sleep(5)
             # Rules for Servers, Followers
@@ -145,17 +144,19 @@ last one in its log (11 in Figure 7).
                 self.respond_fail_or_redirect_to_leader(msg)
                 return
 
-            self.election_timeout = randint(RAND_MIN, RAND_MAX)
-            self.last_RPC_time = time.time() * TIME_SCALE
-            self.print_msg("RPC RESET")
             #time.sleep(5)
             # receiving heart beat, reset RPC
             if msg['type'] == 'heartbeat':
+                self.election_timeout = randint(RAND_MIN, RAND_MAX)
+                self.last_RPC_time = time.time() * TIME_SCALE
+                self.print_msg("RPC RESET")
+
                 self.print_msg("act_as_follower, got heartbeat from (%s)" % msg['src'])
-                self.leader_id = msg['leader']
+                self.become_follower(msg['term'], msg['leader'])
+                # self.leader_id = msg['leader']
 
             # Election Phase, handling vote
-            if msg['type'] == 'request_vote':
+            elif msg['type'] == 'request_vote':
                 # not vote for the other
                 if self.current_term > msg['term']:
                     # refuse the vote, because their term is smaller
@@ -204,6 +205,10 @@ last one in its log (11 in Figure 7).
                     return
 
             if msg['type'] == 'append_entry_request':
+                self.election_timeout = randint(RAND_MIN, RAND_MAX)
+                self.last_RPC_time = time.time() * TIME_SCALE
+                self.print_msg("RPC RESET")
+
                 self.handle_AppendEntriesRPC_request(msg)
                 return
         else:
@@ -361,7 +366,7 @@ last one in its log (11 in Figure 7).
                         print("in process_vote_results, i %s current all votes %d" % (self.id, self.votes_count))
 
                     self.print_msg("in process_vote_results, i (%s) refused to vote for (%s) because i am a candidate!" % (str(self.id), str(vote['src'])), True)
-                
+
         # checks if received enough votes
         # if gathered majority votes, become leader and send heart beats
         if self.votes_count >= majority_votes:
@@ -555,7 +560,7 @@ last one in its log (11 in Figure 7).
 
 
     """
-    For leader: Handle ApplyEntriesRPC response returned from followers 
+    For leader: Handle ApplyEntriesRPC response returned from followers
     """
     def handle_AppendEntriesRPC_response(self, entry):
         global sock, SOCK_RECV_SIZE
@@ -581,7 +586,7 @@ last one in its log (11 in Figure 7).
                     #time.sleep(3)
 
                     servers_to_resend.append(msg['src'])
-                    if msg['term'] > self.current_term:
+                    if msg['term'] > self.current_term: # TODO receiving a message that doesn't have a term
                         # TODO not sure
                         self.become_follower(msg['term'], msg['leader'])
                         self.print_msg("handle_AppendEntriesRPC_response, i am (%s), step down to a follower from a leader" % self.id)
