@@ -455,6 +455,9 @@ last one in its log (11 in Figure 7).
             regular_heartbeat = {'src': self.id, 'dst': server_id, 'leader': self.id, 'type': 'heartbeat',
                                  'MID': str(uuid.UUID), 'term': self.current_term}
             sock.send(json.dumps(regular_heartbeat))
+            print("%s is sending regular heart beat to %s" % (self.id, server_id))
+            time.sleep(3)
+
         threading.Timer(HEARTBEAT_INTERVAL_IN_SEC, self.send_regular_heartbeat).start()
 
     # send heartbeat
