@@ -12,11 +12,13 @@
 #     thread.start()
 #     thread.join()
 #     print "thread finished...exiting"
+import threading, time
 
-array = {1, 2, 3, 4, 5}
-i = 1
-while len(array) > 0:
-    print(i)
-    array.remove(i)
-    print(len(array))
-    i += 1
+
+def send_regular_heartbeat():
+    print("cur_time %s" % time.time())
+    print(time.ctime())
+    threading.Timer(0.15, send_regular_heartbeat).start()
+
+
+send_regular_heartbeat()

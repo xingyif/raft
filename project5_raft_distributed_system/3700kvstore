@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import sched
 import sys, socket, select, time, json, random
+import threading
 import uuid
 from random import randint
 
@@ -31,6 +32,7 @@ replica_ids = sys.argv[2:]
 RAND_MIN = 350 # 150
 RAND_MAX = 500 # 300
 TIME_SCALE = 1000
+HEARTBEAT_INTERVAL_IN_SEC = 0.15 # 150 milliseconds
 
 # Connect to the network. All messages to/from other replicas and clients will
 # occur over this socket
@@ -444,16 +446,24 @@ last one in its log (11 in Figure 7).
             self.print_msg("handle_AppendEntriesRPC_request, i(%s) appended new entry from (%s)" % (str(self.id), str(msg['src'])))
             #time.sleep(1)
 
+
+    def send_regular_heartbeat(self):
+        global HEARTBEAT_INTERVAL_IN_SEC, sock
+        for server_id in self.other_server_ids:
+            regular_heartbeat = {'src': self.id, 'dst': server_id, 'leader': self.id, 'type': 'heartbeat',
+                                 'MID': str(uuid.UUID), 'term': self.current_term}
+            sock.send(json.dumps(regular_heartbeat))
+        threading.Timer(HEARTBEAT_INTERVAL_IN_SEC, self.send_regular_heartbeat).start()
+
     # send heartbeat
     # handle client requests, responde to clients
     # send commit log stuff
     def act_as_leader(self):
         global sock, SOCK_RECV_SIZE
 
-        # send regular heartbeat TODO unsure if this works!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-        s = sched.scheduler(time.time, time.sleep)
-        s.enter(0.15, 1, self.leader_send_regular_heartbeat(), ())
-        s.run()
+        # send regular heartbeat
+        self.send_regular_heartbeat()
+
         self.print_msg("act_as_leader, scheduled sending heart beat i am (%s)" % self.id)
 
         raw_msg = sock.recv(SOCK_RECV_SIZE)
@@ -463,6 +473,7 @@ last one in its log (11 in Figure 7).
             # 1. apply to own log, modify self.last_applied
             # 2. send RPC request, apply
             # 3. parse responses, if N/2+1, then commit, then ask them to commit
+            # TODO do i care if some one sends me a vote requests? if they decide to be a candiadate and increment term, what should i do?
             if msg['type'] == 'get':
                 self.print_msg("act_as_leader, i am (%s), got get request from client" % self.id)
 
@@ -502,13 +513,6 @@ last one in its log (11 in Figure 7).
                 sock.send(json.dumps(response_to_client))
                 self.print_msg("act_as_leader, i am (%s), respond PUT request to client" % self.id)
                 #time.sleep(3)
-
-
-    def leader_send_regular_heartbeat(self):
-        for server_id in self.other_server_ids:
-            regular_heartbeat = {'src': self.id, 'dst': server_id, 'leader': self.id, 'type': 'heartbeat',
-                                 'MID': str(uuid.UUID), 'term': self.current_term}
-            sock.send(json.dumps(regular_heartbeat))
 
     """
     Appends new command to its log as a new entry
