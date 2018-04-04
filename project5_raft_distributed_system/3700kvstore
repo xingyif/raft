@@ -116,7 +116,7 @@ last one in its log (11 in Figure 7).
         # if election timeout
         cur_time = time.time() * 100
         # when timed out
-        self.print_msg("DIFFERENCE %d and election %d" % (cur_time - self.last_RPC_time, self.election_timeout))
+        self.print_msg("DIFFERENCE %d and election %d" % (cur_time - self.last_RPC_time, self.election_timeout), True)
         #time.sleep(5)
         if cur_time - self.last_RPC_time >= self.election_timeout:
             self.print_msg("in act_as_follower, election TIMEOUT!")
@@ -277,7 +277,7 @@ last one in its log (11 in Figure 7).
             # received nothing
             if len(raw_vote) == 0: break
             else:
-                self.last_RPC_time = time.time() * 100
+                self.last_RPC_time = time.time() * 1000
                 self.election_timeout = randint(150, 300)
                 # received some response
                 vote = json.loads(raw_vote)
