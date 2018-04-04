@@ -163,9 +163,9 @@ last one in its log (11 in Figure 7).
                     return
 
                 # if we're at a lower term, then we should update our term and be ready to grant vote
-                elif self.current_term <= msg['term']:
-                    self.become_follower(msg['term'], msg['leader'])
-                    self.voted_for = msg['src']
+                #elif self.current_term <= msg['term']:
+                #    self.become_follower(msg['term'], msg['leader'])
+                #    self.voted_for = msg['src']
 
                 # TODO pull this in handle_request_vote_RPC()
                 # if votedFor is null or candidateId
