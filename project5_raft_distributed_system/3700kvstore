@@ -185,7 +185,7 @@ last one in its log (11 in Figure 7).
                                             'type': 'response_vote',
                                             'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
                         sock.send(json.dumps(response_to_vote))
-                        self.print_msg("act_as_follower, i %s refused to vote for %s because their term/index isn't higher" % (self.id, str(msg['src']), True))
+                        self.print_msg("act_as_follower, i %s refused to vote for %s because their term/index isn't higher" % (self.id, str(msg['src'])), True)
 
                 else:
                     # refuse to vote
@@ -301,6 +301,7 @@ last one in its log (11 in Figure 7).
                     return
 
                 if vote['type'] == 'response_vote':
+                    print("%s received response_vote from %s, vote_granted: %s" % (self.id, vote['src'], str(vote['vote_granted'])))
                     if self.current_term >= vote['term']: # TODO >
                         if vote['vote_granted']:
                             # collect vote
