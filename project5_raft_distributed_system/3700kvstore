@@ -137,15 +137,7 @@ last one in its log (11 in Figure 7).
             # check if msg is from client, if it is check who the leader is and response
             # handling client's requests, redirect clients to leader
             if msg['type'] == 'get' or msg['type'] == 'put':
-                if self.leader_id == 'FFFF':
-                    response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'fail',
-                                          'MID': msg['MID']}
-                    self.print_msg("act_as_follower, got msg from client (%s) but returned fail because leader is 'FFFF'" % str(msg['src']))
-                else:
-                    response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
-                                          'type': 'redirect', 'MID': msg['MID']}
-                    self.print_msg("act_as_follower, got msg from client (%s) and redirect to leader (%s)" % (str(msg['src']), self.leader_id))
-                sock.send(json.dumps(response_to_client))
+                self.respond_fail_or_redirect_to_leader(msg)
                 return
 
             self.election_timeout = randint(150, 300)
@@ -208,6 +200,24 @@ last one in its log (11 in Figure 7).
         else:
             # TODO received nothing
             self.print_msg("act_as_follower, WARNING, raw_msg is empty (%s)" % raw_msg)
+
+
+    def respond_fail_or_redirect_to_leader(self, msg):
+        global sock
+        if self.leader_id == 'FFFF':
+            response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'fail',
+                                  'MID': msg['MID']}
+            self.print_msg(
+                "act_as_follower, got msg from client (%s) but returned fail because leader is 'FFFF'" % str(
+                    msg['src']))
+        else:
+            response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
+                                  'type': 'redirect', 'MID': msg['MID']}
+            self.print_msg("act_as_follower, got msg from client (%s) and redirect to leader (%s)" % (
+            str(msg['src']), self.leader_id))
+        sock.send(json.dumps(response_to_client))
+        return
+
 
     """
     Becomes a candidate, increments current_term, and votes for itself, send vote request to other servers
@@ -283,10 +293,16 @@ last one in its log (11 in Figure 7).
                 self.election_timeout = randint(150, 300)
                 # received some response
                 vote = json.loads(raw_vote)
-                print("in process_vote_results, vote: %s" % vote)
                 # {'src': self.id, 'dst': server_id, 'leader': 'FFFF', 'type': 'response_vote', 'term': self.current_term, 'vote_granted': True}
+
+                # check if msg is from client, if it is check who the leader is and response
+                # handling client's requests, redirect clients to leader
+                if vote['type'] == 'get' or vote['type'] == 'put':
+                    self.respond_fail_or_redirect_to_leader(vote)
+                    return
+
                 if vote['type'] == 'response_vote':
-                    if self.current_term > vote['term']:
+                    if self.current_term >= vote['term']:
                         if vote['vote_granted']:
                             # collect vote
                             self.votes_count += 1
@@ -301,7 +317,7 @@ last one in its log (11 in Figure 7).
                             print("in process_vote_results, current all votes %d" % self.votes_count)
                             pass
                     # if received from a machine with an at least as high term
-                    elif self.current_term <= vote['term']:
+                    elif self.current_term < vote['term']:
                         self.print_msg("in process_vote_results, i (%s) become a FOLLOWER because (%s) has a higher term" % (str(self.id), str(vote['src'])))
                         print("in process_vote_results, i %s became follower because %s has a higher term" % (self.id, vote['src']))
                         print("in process_vote_results, current all votes %d" % self.votes_count)
