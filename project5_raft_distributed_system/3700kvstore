@@ -385,6 +385,8 @@ last one in its log (11 in Figure 7).
         self.voted_for = None
         self.votes_count = 0
 
+        self.act_as_leader()
+
     """
     Replies to the leader's AppendEntriesRPC request
     1. Reply false if term < currentTerm (5.1)
