@@ -302,25 +302,25 @@ last one in its log (11 in Figure 7).
                     return
 
                 if vote['type'] == 'response_vote':
-                    if self.current_term >= vote['term']:
+                    if self.current_term >= vote['term']: # TODO >
                         if vote['vote_granted']:
                             # collect vote
                             self.votes_count += 1
                             self.print_msg("in process_vote_results, i (%s) got vote from (%s)" % (str(self.id), str(vote['src'])))
                             print("in process_vote_results, i %s got vote granted from %s" % (self.id, vote['src']))
-                            print("in process_vote_results, current all votes %d" % self.votes_count)
+                            print("in process_vote_results, i %s current all votes %d" % (self.id, self.votes_count))
 
                         else:
                             # they didn't vote for me
                             self.print_msg("in process_vote_results, i (%s) DIDNOT got vote from (%s)" % (str(self.id), str(vote['src'])))
                             print("in process_vote_results, i %s DIDN't get vote from %s" % (self.id, vote['src']))
-                            print("in process_vote_results, current all votes %d" % self.votes_count)
+                            print("in process_vote_results, i %s current all votes %d" % (self.id, self.votes_count))
                             pass
                     # if received from a machine with an at least as high term
-                    elif self.current_term < vote['term']:
+                    elif self.current_term < vote['term']: # TODO <=
                         self.print_msg("in process_vote_results, i (%s) become a FOLLOWER because (%s) has a higher term" % (str(self.id), str(vote['src'])))
                         print("in process_vote_results, i %s became follower because %s has a higher term" % (self.id, vote['src']))
-                        print("in process_vote_results, current all votes %d" % self.votes_count)
+                        print("in process_vote_results, i %s current all votes %d" % (self.id, self.votes_count))
                         self.become_follower(vote['term'], vote['leader']) # update term TODO what is vote['leader;] is dead
                         return
                 # if we received a heartbeat from a new leader, then abort election process
@@ -330,7 +330,7 @@ last one in its log (11 in Figure 7).
                 elif vote['type'] == 'heartbeat' or vote['type'] == 'append_entry_request':
                     if self.current_term < vote['term']:
                         self.print_msg("in process_vote_results, i (%s) become a FOLLOWER received heartbeat from leader (%s)" % (str(self.id), str(vote['src'])))
-                        print("in process_vote_results, current all votes %d" % self.votes_count)
+                        print("in process_vote_results, i %s current all votes %d" % (self.id, self.votes_count))
                         self.become_follower(vote['term'], vote['leader'])
                         return
                 # if other requests me to vote for them while I am a candidate
@@ -340,7 +340,7 @@ last one in its log (11 in Figure 7).
                                 'MID': vote['MID'], 'term': self.current_term, 'vote_granted': False}
                         sock.send(json.dumps(response_to_vote))
                         print("in process_vote_results, i %s REFUSED to vote for %s" % (self.id, vote['src']))
-                        print("in process_vote_results, current all votes %d" % self.votes_count)
+                        print("in process_vote_results, i %s current all votes %d" % (self.id, self.votes_count))
 
                     self.print_msg("in process_vote_results, i (%s) refused to vote for (%s) because i am a candidate!" % (str(self.id), str(vote['src'])))
 
