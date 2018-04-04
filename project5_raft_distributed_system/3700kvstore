@@ -465,7 +465,7 @@ last one in its log (11 in Figure 7).
             sock.send(json.dumps(regular_heartbeat))
             self.print_msg("%s is sending regular heart beat to %s" % (self.id, server_id))
 
-        #threading.Timer(HEARTBEAT_INTERVAL_IN_SEC, self.send_regular_heartbeat).start()
+        threading.Timer(HEARTBEAT_INTERVAL_IN_SEC, self.send_regular_heartbeat).start()
 
     # send heartbeat
     # handle client requests, responde to clients
@@ -487,7 +487,7 @@ last one in its log (11 in Figure 7).
             # 3. parse responses, if N/2+1, then commit, then ask them to commit
             # TODO do i care if some one sends me a vote requests? if they decide to be a candiadate and increment term, what should i do?
             if msg['type'] == 'get':
-                self.send_regular_heartbeat()
+                #self.send_regular_heartbeat()
                 self.print_msg("act_as_leader, i am (%s), got get request from client" % self.id)
 
                 # log replication
@@ -510,7 +510,7 @@ last one in its log (11 in Figure 7).
 
             # handle put from client
             elif msg['type'] == 'put':
-                self.send_regular_heartbeat()
+                #self.send_regular_heartbeat()
                 self.print_msg("act_as_leader, i am (%s), got put request from client" % self.id)
 
                 # append this command to our own log
