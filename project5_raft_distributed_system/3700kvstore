@@ -312,7 +312,8 @@ last one in its log (11 in Figure 7).
                 # handling client's requests, redirect clients to leader
                 if vote['type'] == 'get' or vote['type'] == 'put':
                     self.respond_fail_or_redirect_to_leader(vote)
-                    break
+                    continue
+
                 print("i %s received this vote message: %s" % (self.id, vote))
                 if vote['type'] == 'response_vote':
                     #print("%s received response_vote from %s, vote_granted: %s" % (self.id, vote['src'], str(vote['vote_granted'])))
