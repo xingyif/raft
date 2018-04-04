@@ -250,7 +250,7 @@ last one in its log (11 in Figure 7).
         start_election_time = time.time() * TIME_SCALE
         # send out request vote RPC
         self.request_vote_RPC()
-        self.process_vote_results(start_election_time)
+        self.process_vote_results(start_election_time, self.election_timeout)
 
 
     def request_vote_RPC(self):
@@ -274,14 +274,14 @@ last one in its log (11 in Figure 7).
     if tie, timeout and restart election
     if failed, become follower
     """
-    def process_vote_results(self, start_election_time):
+    def process_vote_results(self, start_election_time, timeout):
         N = len(self.other_server_ids) + 1
         majority_votes = N / 2 + 1
         # when not timed out, aka no split vote
-        new_timeout = randint(RAND_MIN, RAND_MAX) * 2
-        while time.time() * TIME_SCALE - start_election_time <= new_timeout:
+        # new_timeout = randint(RAND_MIN, RAND_MAX) * 2
+        while time.time() * TIME_SCALE - start_election_time <= timeout:
             self.print_msg("in process_vote_results, cur_time - start_election_time: %d and election timeout: %d" % (
-            time.time() * TIME_SCALE - start_election_time, new_timeout), True)
+            time.time() * TIME_SCALE - start_election_time, timeout), True)
 
             print("i %s processing vote results" % self.id)
             # checks if received enough votes
@@ -306,7 +306,7 @@ last one in its log (11 in Figure 7).
                 # handling client's requests, redirect clients to leader
                 if vote['type'] == 'get' or vote['type'] == 'put':
                     self.respond_fail_or_redirect_to_leader(vote)
-                    return
+                    break
                 print("i %s received this vote message: %s" % (self.id, vote))
                 if vote['type'] == 'response_vote':
                     #print("%s received response_vote from %s, vote_granted: %s" % (self.id, vote['src'], str(vote['vote_granted'])))
