@@ -277,11 +277,12 @@ last one in its log (11 in Figure 7).
     def process_vote_results(self, start_election_time):
         N = len(self.other_server_ids) + 1
         majority_votes = N / 2 + 1
-        cur_time = time.time() * TIME_SCALE
         # when not timed out, aka no split vote
-        self.print_msg("in process_vote_results, cur_time - start_election_time: %d and election timeout: %d" % (cur_time - start_election_time, self.election_timeout), True)
         new_timeout = randint(RAND_MIN, RAND_MAX) * 2
-        while cur_time - start_election_time <= new_timeout:
+        while time.time() * TIME_SCALE - start_election_time <= new_timeout:
+            self.print_msg("in process_vote_results, cur_time - start_election_time: %d and election timeout: %d" % (
+            time.time() * TIME_SCALE - start_election_time, new_timeout), True)
+
             print("i %s processing vote results" % self.id)
             # checks if received enough votes
             # if gathered majority votes, become leader and send heart beats
@@ -353,7 +354,6 @@ last one in its log (11 in Figure 7).
                         print("in process_vote_results, i %s current all votes %d" % (self.id, self.votes_count))
 
                     self.print_msg("in process_vote_results, i (%s) refused to vote for (%s) because i am a candidate!" % (str(self.id), str(vote['src'])), True)
-            cur_time = time.time()
                 
         # checks if received enough votes
         # if gathered majority votes, become leader and send heart beats
