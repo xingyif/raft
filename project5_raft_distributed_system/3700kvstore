@@ -263,6 +263,7 @@ last one in its log (11 in Figure 7).
                                 'last_log_term': last_log_term}
             sock.send(json.dumps(request_for_vote))
             self.print_msg("in request_vote_RPC, i (%s) send replica (%s) a request_vote" % (str(self.id), str(server_id)))
+        print("i %s requested votes from %s" % (self.id, str(self.other_server_ids)))
 
     """
     process the received votes:
@@ -278,6 +279,7 @@ last one in its log (11 in Figure 7).
         self.print_msg("in process_vote_results, cur_time - start_election_time: %d and election timeout: %d" % (cur_time - start_election_time, self.election_timeout))
 
         while cur_time - start_election_time < self.election_timeout:
+            print("i %s processing vote results" % self.id)
             # checks if received enough votes
             # if gathered majority votes, become leader and send heart beats
             if self.votes_count >= majority_votes:
@@ -307,6 +309,9 @@ last one in its log (11 in Figure 7).
                             # collect vote
                             self.votes_count += 1
                             self.print_msg("in process_vote_results, i (%s) got vote from (%s)" % (str(self.id), str(vote['src'])))
+                            if self.votes_count >= majority_votes:
+                                self.become_leader()
+                                return
                             print("in process_vote_results, i %s got vote granted from %s" % (self.id, vote['src']))
                             print("in process_vote_results, i %s current all votes %d" % (self.id, self.votes_count))
 
