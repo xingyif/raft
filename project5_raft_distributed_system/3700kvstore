@@ -158,7 +158,7 @@ last one in its log (11 in Figure 7).
                                         'type': 'response_vote',
                                         'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
                     sock.send(json.dumps(response_to_vote))
-                    self.print_msg("act_as_follower, refused to vote for %s" % str(msg['src']))
+                    self.print_msg("act_as_follower, refused to vote for %s" % str(msg['src']), True)
 
                     return
 
@@ -178,14 +178,14 @@ last one in its log (11 in Figure 7).
                         response_to_vote = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id, 'type': 'response_vote',
                                 'MID': msg['MID'], 'term': msg['term'], 'vote_granted': True}
                         sock.send(json.dumps(response_to_vote))
-                        self.print_msg("act_as_follower, granted vote for %s" % str(msg['src']))
+                        self.print_msg("act_as_follower, i %s granted vote for %s" % (self.id, str(msg['src'])), True)
                     else:
                         # refuse to vote
                         response_to_vote = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id,
                                             'type': 'response_vote',
                                             'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
                         sock.send(json.dumps(response_to_vote))
-                        self.print_msg("act_as_follower, refused to vote for %s because their term/index isn't higher" % str(msg['src']))
+                        self.print_msg("act_as_follower, i %s refused to vote for %s because their term/index isn't higher" % (self.id, str(msg['src']), True))
 
                 else:
                     # refuse to vote
@@ -193,7 +193,7 @@ last one in its log (11 in Figure 7).
                                         'type': 'response_vote',
                                         'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
                     sock.send(json.dumps(response_to_vote))
-                    self.print_msg("act_as_follower, refused to vote for %s because we voted" % str(msg['src']))
+                    self.print_msg("act_as_follower, i %s refused to vote for %s because i voted" % (self.id, str(msg['src'])), True)
 
             if msg['type'] == 'append_entry_request':
                 self.handle_AppendEntriesRPC_request(msg)
