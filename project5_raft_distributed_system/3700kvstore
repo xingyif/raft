@@ -266,6 +266,8 @@ last one in its log (11 in Figure 7).
         majority_votes = N / 2 + 1
         cur_time = time.time() * 1000
         # when not timed out, aka no split vote
+        self.print_msg("in process_vote_results, cur_time - start_election_time: %d and election timeout: %d" % (cur_time - start_election_time, self.election_timeout), True)
+
         while cur_time - start_election_time < self.election_timeout:
             # checks if received enough votes
             # if gathered majority votes, become leader and send heart beats
