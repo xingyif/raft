@@ -166,6 +166,7 @@ last one in its log (11 in Figure 7).
                     return
 
                 # if we're at a lower term, then we should update our term and be ready to grant vote
+                # TODO
                 #elif self.current_term <= msg['term']:
                 #    self.become_follower(msg['term'], msg['leader'])
                 #    self.voted_for = msg['src']
@@ -182,6 +183,7 @@ last one in its log (11 in Figure 7).
                                 'MID': msg['MID'], 'term': msg['term'], 'vote_granted': True}
                         sock.send(json.dumps(response_to_vote))
                         self.print_msg("act_as_follower, i %s granted vote for %s" % (self.id, str(msg['src'])), True)
+                        return
                     else:
                         # refuse to vote
                         response_to_vote = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id,
@@ -189,7 +191,7 @@ last one in its log (11 in Figure 7).
                                             'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
                         sock.send(json.dumps(response_to_vote))
                         self.print_msg("act_as_follower, i %s refused to vote for %s because their term/index isn't higher" % (self.id, str(msg['src'])), True)
-
+                        return
                 else:
                     # refuse to vote
                     response_to_vote = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id,
@@ -197,9 +199,11 @@ last one in its log (11 in Figure 7).
                                         'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
                     sock.send(json.dumps(response_to_vote))
                     self.print_msg("act_as_follower, i %s refused to vote for %s because i voted" % (self.id, str(msg['src'])), True)
+                    return
 
             if msg['type'] == 'append_entry_request':
                 self.handle_AppendEntriesRPC_request(msg)
+                return
         else:
             # TODO received nothing
             self.print_msg("act_as_follower, WARNING, raw_msg is empty (%s)" % raw_msg)
@@ -279,7 +283,7 @@ last one in its log (11 in Figure 7).
         majority_votes = N / 2 + 1
         # when not timed out, aka no split vote
         # new_timeout = randint(RAND_MIN, RAND_MAX) * 2
-        while time.time() * TIME_SCALE - start_election_time <= timeout:
+        while time.time() * TIME_SCALE < start_election_time + timeout:
             self.print_msg("in process_vote_results, cur_time - start_election_time: %d and election timeout: %d" % (
             time.time() * TIME_SCALE - start_election_time, timeout), True)
 
@@ -326,7 +330,7 @@ last one in its log (11 in Figure 7).
                             self.print_msg("in process_vote_results, i (%s) DIDNOT got vote from (%s)" % (str(self.id), str(vote['src'])))
                             print("in process_vote_results, i %s DIDN't get vote from %s" % (self.id, vote['src']))
                             print("in process_vote_results, i %s current all votes %d" % (self.id, self.votes_count))
-                            pass
+                            break
                     # if received from a machine with an at least as high term
                     elif self.current_term < vote['term']: # TODO <=
                         self.print_msg("in process_vote_results, i (%s) become a FOLLOWER because (%s) has a higher term" % (str(self.id), str(vote['src'])))
@@ -352,6 +356,7 @@ last one in its log (11 in Figure 7).
                         sock.send(json.dumps(response_to_vote))
                         print("in process_vote_results, i %s REFUSED to vote for %s" % (self.id, vote['src']))
                         print("in process_vote_results, i %s current all votes %d" % (self.id, self.votes_count))
+                        break
 
                     self.print_msg("in process_vote_results, i (%s) refused to vote for (%s) because i am a candidate!" % (str(self.id), str(vote['src'])), True)
                 
@@ -364,7 +369,6 @@ last one in its log (11 in Figure 7).
         # split vote senario
         self.print_msg("in process_vote_results, SPLIT VOTE, i (%s) didn't get enough votes, restart election, my cur votes %d" % (str(self.id), self.votes_count), True)
         self.become_candidate()
-        self.print_msg('became candidate')
         return
 
 
