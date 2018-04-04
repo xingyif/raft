@@ -54,7 +54,7 @@ class StateMachine:
         self.voted_for = None
         self.last_RPC_time = time.time() * TIME_SCALE
         # initial random, then record RTT in list, get mean + x miliseconds as timeout
-        self.election_timeout = randint(150, 300) #TODOD reset after receives a heartbeat from leader
+        self.election_timeout = RAND_ELECTION_TIMEOUT #TODOD reset after receives a heartbeat from leader
         self.votes_count = 0
         self.other_server_ids = other_server_ids
         self.last_applied_log_entry = 0 # TODO this is probably len(log) -1
@@ -142,7 +142,7 @@ last one in its log (11 in Figure 7).
                 self.respond_fail_or_redirect_to_leader(msg)
                 return
 
-            self.election_timeout = randint(150, 300)
+            self.election_timeout = RAND_ELECTION_TIMEOUT
             self.last_RPC_time = time.time() * TIME_SCALE
             self.print_msg("RPC RESET")
             #time.sleep(5)
@@ -245,7 +245,7 @@ last one in its log (11 in Figure 7).
         # set leader id to None
         self.leader_id = 'FFFF'
         #reset election timer
-        self.election_timeout = randint(150, 300)
+        self.election_timeout = RAND_ELECTION_TIMEOUT
         start_election_time = time.time() * TIME_SCALE
         # send out request vote RPC
         self.request_vote_RPC()
@@ -279,8 +279,8 @@ last one in its log (11 in Figure 7).
         cur_time = time.time() * TIME_SCALE
         # when not timed out, aka no split vote
         self.print_msg("in process_vote_results, cur_time - start_election_time: %d and election timeout: %d" % (cur_time - start_election_time, self.election_timeout), True)
-
-        while cur_time - start_election_time < self.election_timeout:
+        new_timeout = self.election_timeout * 2
+        while cur_time - start_election_time < new_timeout:
             print("i %s processing vote results" % self.id)
             # checks if received enough votes
             # if gathered majority votes, become leader and send heart beats
@@ -295,7 +295,7 @@ last one in its log (11 in Figure 7).
                 break
             else:
                 self.last_RPC_time = time.time() * TIME_SCALE
-                self.election_timeout = randint(150, 300)
+                self.election_timeout = RAND_ELECTION_TIMEOUT
                 # received some response
                 vote = json.loads(raw_vote)
                 # {'src': self.id, 'dst': server_id, 'leader': 'FFFF', 'type': 'response_vote', 'term': self.current_term, 'vote_granted': True}
