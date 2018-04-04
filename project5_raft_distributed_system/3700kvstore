@@ -280,8 +280,8 @@ last one in its log (11 in Figure 7).
         cur_time = time.time() * TIME_SCALE
         # when not timed out, aka no split vote
         self.print_msg("in process_vote_results, cur_time - start_election_time: %d and election timeout: %d" % (cur_time - start_election_time, self.election_timeout), True)
-        new_timeout = randint(RAND_MIN, RAND_MAX)
-        while cur_time - start_election_time < new_timeout:
+        new_timeout = randint(RAND_MIN, RAND_MAX) * 2
+        while cur_time - start_election_time <= new_timeout:
             print("i %s processing vote results" % self.id)
             # checks if received enough votes
             # if gathered majority votes, become leader and send heart beats
@@ -357,12 +357,15 @@ last one in its log (11 in Figure 7).
                 
         # checks if received enough votes
         # if gathered majority votes, become leader and send heart beats
-        #if self.votes_count >= majority_votes:
-        #    self.become_leader()
+        if self.votes_count >= majority_votes:
+            self.become_leader()
+            return
+
         # split vote senario
         self.print_msg("in process_vote_results, SPLIT VOTE, i (%s) didn't get enough votes, restart election, my cur votes %d" % (str(self.id), self.votes_count), True)
         self.become_candidate()
         self.print_msg('became candidate')
+        return
 
 
     def become_leader(self):
