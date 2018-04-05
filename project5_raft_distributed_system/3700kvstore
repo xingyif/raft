@@ -303,7 +303,6 @@ last one in its log (11 in Figure 7).
             raw_vote = sock.recv(SOCK_RECV_SIZE)
             # received nothing
             if len(raw_vote) == 0:
-                print("in process_vote!!!!!!!!!!!!!!!!!!!!!!!! %s did not get anyting, raw_msg %s" % (self.id, raw_vote))
                 break
             else:
                 self.last_RPC_time = time.time() * TIME_SCALE
@@ -391,7 +390,6 @@ last one in its log (11 in Figure 7).
         self.votes_count = 0
         self.send_regular_heartbeat()
 
-        self.act_as_leader()
 
     """
     Replies to the leader's AppendEntriesRPC request
