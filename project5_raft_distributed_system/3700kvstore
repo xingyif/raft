@@ -70,12 +70,26 @@ class StateMachine:
         self.next_idx_to_send = self.init_next_idx_to_send()
         self.highest_entries_replicated = self.init_highest_entries_replicated()
         self.key_value_store = dict()
+        self.queued_client_requests = []
         # for debugging purposes
         self.getmsg = set()
         self.putmsg = set()
 
+
+    def run(self):
+        while True:
+            if self.state == 'follower':
+                self.print_msg("%s about to act as follower" % self.id, True)
+                self.act_as_follower()
+           # elif self.state == 'candidate':
+           #     self.act_as_candidate()
+            elif self.state == 'leader':
+                #self.print_msg("i %s am ACTING AS LEADER" % self.id, True)
+                self.act_as_leader()
+
+
     def print_msg(self, msg, bool=False):
-        bool = False
+        #bool = False
         if bool:
             print(msg)
         return
@@ -101,16 +115,6 @@ last one in its log (11 in Figure 7).
                 highest_entries_replicated[server_id] = 0
         return highest_entries_replicated
 
-    def run(self):
-        while True:
-            if self.state == 'follower':
-                self.act_as_follower()
-           # elif self.state == 'candidate':
-           #     self.act_as_candidate()
-            elif self.state == 'leader':
-                #self.print_msg("i %s am ACTING AS LEADER" % self.id, True)
-                self.act_as_leader()
-
 
     def become_follower(self, new_term, new_leader):
         global sock, SOCK_RECV_SIZE
@@ -125,7 +129,7 @@ last one in its log (11 in Figure 7).
     def act_as_follower(self):
         global sock, SOCK_RECV_SIZE
 
-        self.print_msg("acting as a follower!")
+        self.print_msg("%s acting as a follower!" % self.id, True)
         # if election timeout
         # when timed out
         self.print_msg("DIFFERENCE %d and election %d" % (time.time() * TIME_SCALE - self.last_RPC_time, self.election_timeout))
@@ -224,18 +228,24 @@ last one in its log (11 in Figure 7).
     def respond_fail_or_redirect_to_leader(self, msg):
         global sock
         if self.leader_id == 'FFFF':
-            response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'fail',
-                                  'MID': msg['MID']}
-            self.print_msg(
-                "%s act_as_follower, got msg from client (%s) but returned fail because leader is 'FFFF'" % (self.id, str(
-                    msg['src'])), True)
+            self.queued_client_requests.append(msg)
+            #response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'fail',
+            #                      'MID': msg['MID']}
+            #self.print_msg(
+            #    "%s act_as_follower, got msg from client (%s) but returned fail because leader is 'FFFF'" % (self.id, str(
+            #        msg['src'])), True)
         else:
             response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
                                   'type': 'redirect', 'MID': msg['MID']}
             self.print_msg("%s act_as_follower, got msg from client (%s) and redirect to leader (%s)" % (
             self.id, str(msg['src']), self.leader_id), True)
-        sock.send(json.dumps(response_to_client))
-        return
+            sock.send(json.dumps(response_to_client))
+
+            for m in list(self.queued_client_requests):
+                response_prev_requests_to_client = {'src': self.id, "dst": m['src'], 'leader': self.leader_id,
+                                                    'type': 'redirect', 'MID': m['MID']}
+                sock.send(json.dumps(response_prev_requests_to_client))
+                self.queued_client_requests.remove(m)
 
 
     """
@@ -647,6 +657,7 @@ def main():
         #print("replicate id (%s)" % id)
     my_server.run()
 
+    '''
     while True:
         ready = select.select([sock], [], [], 0.1)[0]
 
@@ -661,7 +672,7 @@ def main():
             if msg['type'] in ['get', 'put']:
                 response = {'src': msg['dst'], "dst": msg['src'], "leader": msg['leader'], "type": "fail", "MID": msg['MID']}
                 sock.send(json.dumps(response))
-
+    '''
 
 if __name__ == "__main__":
     main()
