@@ -46,7 +46,14 @@ last = 0
 TODO problems:
 1. split vote happens way too often, takes too long to elect a leader, many client messages are rejected (replied "fail")
     this could be because the random ints are too close to each other
+
 2. maybe taking too long to elect a leader, (maybe election timeout is too long)?
+
+3. there is a bad time gap (a few seconds) between starting and act_as_follwer, why?
+i.e:
+    0003 has election_timeout 97
+    0004 act_as_follower, got msg from client (0015) but returned fail because leader is 'FFFF'
+
 """
 
 class StateMachine:
