@@ -71,7 +71,6 @@ class StateMachine:
         self.key_value_store = dict()
 
     def print_msg(self, msg, bool=False):
-        bool = False
         if bool:
             print(msg)
         return
@@ -115,7 +114,7 @@ last one in its log (11 in Figure 7).
         self.voted_for = None
         self.votes_count = 0
         self.leader_id = new_leader
-        self.print_msg("i %s am now a follower" % self.id, True)
+        self.print_msg("i %s am now a follower" % self.id)
 
     def act_as_follower(self):
         global sock, SOCK_RECV_SIZE
@@ -126,7 +125,7 @@ last one in its log (11 in Figure 7).
         self.print_msg("DIFFERENCE %d and election %d" % (time.time() * TIME_SCALE - self.last_RPC_time, self.election_timeout))
         #time.sleep(5)
         if time.time() * TIME_SCALE - self.last_RPC_time >= self.election_timeout:
-            self.print_msg("DIFFERENCE %d and election %d" % (time.time() * TIME_SCALE - self.last_RPC_time, self.election_timeout), True)
+            self.print_msg("DIFFERENCE %d and election %d" % (time.time() * TIME_SCALE - self.last_RPC_time, self.election_timeout))
             #self.print_msg("in act_as_follower, election TIMEOUT!", True)
             #time.sleep(5)
             # Rules for Servers, Followers
@@ -182,7 +181,7 @@ last one in its log (11 in Figure 7).
                 if self.voted_for is None or self.voted_for == msg['src']:
                     last_log_index = len(self.log) - 1
                     (mid, command, last_log_term) = self.log[last_log_index]
-                    self.print_msg("my %s voted_for is %s" % (self.id, self.voted_for), True)
+                    self.print_msg("my %s voted_for is %s" % (self.id, self.voted_for))
                     if last_log_index <= msg['last_log_idx'] or last_log_term <= msg['last_log_term']:
                         self.voted_for = msg['src']
                         # TODO who should be the leader
@@ -238,7 +237,7 @@ last one in its log (11 in Figure 7).
     """
     def become_candidate(self):
         global sock, SOCK_RECV_SIZE
-        self.print_msg("i %s becoming a candidate" % self.id, True)
+        self.print_msg("i %s becoming a candidate" % self.id)
         # become a candidate
         self.state = 'candidate'
         # reset votes_count from last election
@@ -328,7 +327,7 @@ last one in its log (11 in Figure 7).
                     if self.current_term <= vote['term']:
                         self.print_msg(
                             "in process_vote_results, i (%s) become a FOLLOWER received heartbeat from leader (%s)" % (
-                            str(self.id), str(vote['src'])), True)
+                            str(self.id), str(vote['src'])))
                         time.sleep(1)
                         self.become_follower(vote['term'], vote['leader'])
                         return
@@ -339,8 +338,8 @@ last one in its log (11 in Figure 7).
                         if vote['vote_granted']:
                             # collect vote
                             self.votes_count += 1
-                            self.print_msg("in process_vote_results, i (%s) got vote from (%s)" % (str(self.id), str(vote['src'])), True)
-                            self.print_msg("in process_vote_results, i %s current all votes %d" % (self.id, self.votes_count), True)
+                            self.print_msg("in process_vote_results, i (%s) got vote from (%s)" % (str(self.id), str(vote['src'])))
+                            self.print_msg("in process_vote_results, i %s current all votes %d" % (self.id, self.votes_count))
                             if self.votes_count >= majority_votes:
                                 self.become_leader()
                                 return
@@ -383,7 +382,7 @@ last one in its log (11 in Figure 7).
 
 
     def become_leader(self):
-        self.print_msg("become_leader, id (%s)" % str(self.id), True)
+        self.print_msg("become_leader, id (%s)" % str(self.id))
         self.state = 'leader'
         self.next_idx_to_send = self.init_next_idx_to_send()
         self.highest_entries_replicated = self.init_highest_entries_replicated()
@@ -590,7 +589,7 @@ last one in its log (11 in Figure 7).
                     #time.sleep(3)
 
                     servers_to_resend.append(msg['src'])
-                    self.print_msg(("RESPONSE IS: %s" % msg), True)
+                    self.print_msg(("RESPONSE IS: %s" % msg))
                     if msg['term'] > self.current_term: # TODO receiving a message that doesn't have a term
                         # TODO not sure
                         self.become_follower(msg['term'], msg['leader'])
