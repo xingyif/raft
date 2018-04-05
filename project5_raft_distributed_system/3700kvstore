@@ -30,7 +30,7 @@ my_id = sys.argv[1]
 replica_ids = sys.argv[2:]
 
 RAND_MIN = 350 # 150
-RAND_MAX = 500 # 300
+RAND_MAX = 700 # 300
 TIME_SCALE = 1000
 HEARTBEAT_INTERVAL_IN_SEC = 0.15 # 150 milliseconds
 
@@ -223,12 +223,12 @@ last one in its log (11 in Figure 7).
                                   'MID': msg['MID']}
             self.print_msg(
                 "act_as_follower, got msg from client (%s) but returned fail because leader is 'FFFF'" % str(
-                    msg['src']))
+                    msg['src']), True)
         else:
             response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
                                   'type': 'redirect', 'MID': msg['MID']}
             self.print_msg("act_as_follower, got msg from client (%s) and redirect to leader (%s)" % (
-            str(msg['src']), self.leader_id))
+            str(msg['src']), self.leader_id), True)
         sock.send(json.dumps(response_to_client))
         return
 
@@ -265,6 +265,7 @@ last one in its log (11 in Figure 7).
 
 
     def request_vote_RPC(self):
+        global sock
         # send vote requests to other servers
         for server_id in self.other_server_ids:
             #indexed by 1
