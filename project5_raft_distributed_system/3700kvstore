@@ -103,6 +103,7 @@ last one in its log (11 in Figure 7).
            # elif self.state == 'candidate':
            #     self.act_as_candidate()
             elif self.state == 'leader':
+                #self.print_msg("i %s am ACTING AS LEADER" % self.id, True)
                 self.act_as_leader()
 
 
@@ -130,7 +131,7 @@ last one in its log (11 in Figure 7).
             #time.sleep(5)
             # Rules for Servers, Followers
             if self.voted_for is None:
-                self.print_msg("%s becoming candidate" % str(self.id))
+                self.print_msg("%s becoming candidate" % str(self.id), True)
                 #time.sleep(5)
                 self.become_candidate()
                 return
@@ -153,7 +154,7 @@ last one in its log (11 in Figure 7).
             #time.sleep(5)
             # receiving heart beat, reset RPC
             if msg['type'] == 'heartbeat':
-                self.print_msg("act_as_follower, got heartbeat from (%s)" % msg['src'])
+                self.print_msg("i %s act_as_follower, got heartbeat from (%s)" % (self.id, msg['src']))
                 self.become_follower(msg['term'], msg['leader'])
                 return
                 # self.leader_id = msg['leader']
@@ -260,7 +261,7 @@ last one in its log (11 in Figure 7).
         start_election_time = time.time() * TIME_SCALE
         # send out request vote RPC
         self.request_vote_RPC()
-        self.process_vote_results(start_election_time, self.election_timeout)
+        self.process_vote_results(start_election_time)
 
 
     def request_vote_RPC(self):
@@ -284,14 +285,14 @@ last one in its log (11 in Figure 7).
     if tie, timeout and restart election
     if failed, become follower
     """
-    def process_vote_results(self, start_election_time, timeout):
+    def process_vote_results(self, start_election_time):
         N = len(self.other_server_ids) + 1
         majority_votes = N / 2 + 1
         # when not timed out, aka no split vote
         # new_timeout = randint(RAND_MIN, RAND_MAX) * 2
-        while time.time() * TIME_SCALE < start_election_time + timeout:
+        while time.time() * TIME_SCALE - start_election_time < self.election_timeout:
             self.print_msg("in process_vote_results, cur_time - start_election_time: %d and election timeout: %d" % (
-            time.time() * TIME_SCALE - start_election_time, timeout))
+            time.time() * TIME_SCALE - start_election_time, self.election_timeout))
 
             self.print_msg("i %s processing vote results" % self.id)
             # checks if received enough votes
@@ -306,7 +307,7 @@ last one in its log (11 in Figure 7).
                 break
             else:
                 self.last_RPC_time = time.time() * TIME_SCALE
-                self.election_timeout = randint(RAND_MIN, RAND_MAX)
+                #self.election_timeout = randint(RAND_MIN, RAND_MAX)
                 # received some response
                 vote = json.loads(raw_vote)
                 # {'src': self.id, 'dst': server_id, 'leader': 'FFFF', 'type': 'response_vote', 'term': self.current_term, 'vote_granted': True}
@@ -327,7 +328,6 @@ last one in its log (11 in Figure 7).
                         self.print_msg(
                             "in process_vote_results, i (%s) become a FOLLOWER received heartbeat from leader (%s)" % (
                             str(self.id), str(vote['src'])))
-                        time.sleep(1)
                         self.become_follower(vote['term'], vote['leader'])
                         return
 
@@ -348,7 +348,7 @@ last one in its log (11 in Figure 7).
                             self.print_msg("in process_vote_results, i (%s) DIDNOT got vote from (%s)" % (str(self.id), str(vote['src'])))
                             self.print_msg("in process_vote_results, i %s DIDN't get vote from %s" % (self.id, vote['src']))
                             self.print_msg("in process_vote_results, i %s current all votes %d" % (self.id, self.votes_count))
-                            continue
+                        continue
                     # if received from a machine with an at least as high term
                     elif self.current_term < vote['term']: # TODO <=
                         self.print_msg("in process_vote_results, i (%s) become a FOLLOWER because (%s) has a higher term" % (str(self.id), str(vote['src'])))
@@ -375,7 +375,9 @@ last one in its log (11 in Figure 7).
             return
 
         # split vote senario
-        self.print_msg("in process_vote_results, SPLIT VOTE, i (%s) didn't get enough votes, restart election, my cur votes %d" % (str(self.id), self.votes_count))
+        self.print_msg("in process_vote_results, cur_time - start_election_time: %d and election timeout: %d" % (
+            time.time() * TIME_SCALE - start_election_time, self.election_timeout), True)
+        self.print_msg("in process_vote_results, SPLIT VOTE, i (%s) didn't get enough votes, restart election, my cur votes %d" % (str(self.id), self.votes_count), True)
         self.become_candidate()
         return
 
@@ -389,6 +391,7 @@ last one in its log (11 in Figure 7).
         self.voted_for = None
         self.votes_count = 0
         self.send_regular_heartbeat()
+        self.print_msg("i %s HAVE BECOME LEADER" % self.id, True)
 
 
     """
