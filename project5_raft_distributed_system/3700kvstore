@@ -1,9 +1,7 @@
 #!/usr/bin/env python
-import sched
 import sys, socket, select, time, json, random
 import threading
 import uuid
-from random import randint
 
 """
 Data Structures Needed:
@@ -130,10 +128,18 @@ last one in its log (11 in Figure 7).
         # when timed out
         self.print_msg("DIFFERENCE %d and election %d" % (time.time() * TIME_SCALE - self.last_RPC_time, self.election_timeout))
         #time.sleep(5)
+
+        if self.leader_id == 'FFFF':
+            if self.voted_for is None:
+                self.become_candidate()
+                return
+        # TODO check before becoming a candidate, did i ever receive any request vote?
         if time.time() * TIME_SCALE - self.last_RPC_time >= self.election_timeout:
             self.print_msg("DIFFERENCE %d and election %d" % (time.time() * TIME_SCALE - self.last_RPC_time, self.election_timeout))
             #self.print_msg("in act_as_follower, election TIMEOUT!", True)
             #time.sleep(5)
+
+
             # Rules for Servers, Followers
             if self.voted_for is None:
                 self.print_msg("%s becoming candidate" % str(self.id), True)
@@ -153,7 +159,7 @@ last one in its log (11 in Figure 7).
                 self.respond_fail_or_redirect_to_leader(msg)
                 return
 
-            self.election_timeout = randint(RAND_MIN, RAND_MAX)
+            self.election_timeout = random.uniform(RAND_MIN, RAND_MAX)
             self.last_RPC_time = time.time() * TIME_SCALE
             self.print_msg("RPC RESET")
             #time.sleep(5)
@@ -260,9 +266,9 @@ last one in its log (11 in Figure 7).
         self.votes_count += 1
         self.voted_for = self.id
         # set leader id to None
-        self.leader_id = 'FFFF'
+        #self.leader_id = 'FFFF' # TODO
         #reset election timer
-        self.election_timeout = randint(RAND_MIN, RAND_MAX)
+        #self.election_timeout = random.uniform(RAND_MIN, RAND_MAX)
         start_election_time = time.time() * TIME_SCALE
         # send out request vote RPC
         self.request_vote_RPC()
@@ -295,7 +301,7 @@ last one in its log (11 in Figure 7).
         N = len(self.other_server_ids) + 1
         majority_votes = N / 2 + 1
         # when not timed out, aka no split vote
-        # new_timeout = randint(RAND_MIN, RAND_MAX) * 2
+        # new_timeout = random.uniform(RAND_MIN, RAND_MAX) * 2
         while time.time() * TIME_SCALE - start_election_time < self.election_timeout:
             self.print_msg("in process_vote_results, cur_time - start_election_time: %d and election timeout: %d" % (
             time.time() * TIME_SCALE - start_election_time, self.election_timeout))
@@ -313,7 +319,7 @@ last one in its log (11 in Figure 7).
                 break
             else:
                 self.last_RPC_time = time.time() * TIME_SCALE
-                #self.election_timeout = randint(RAND_MIN, RAND_MAX)
+                #self.election_timeout = random.uniform(RAND_MIN, RAND_MAX)
                 # received some response
                 vote = json.loads(raw_vote)
                 # {'src': self.id, 'dst': server_id, 'leader': 'FFFF', 'type': 'response_vote', 'term': self.current_term, 'vote_granted': True}
