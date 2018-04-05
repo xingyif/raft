@@ -42,6 +42,13 @@ sock.connect(my_id)
 last = 0
 
 
+"""
+TODO problems:
+1. split vote happens way too often, takes too long to elect a leader, many client messages are rejected (replied "fail")
+    this could be because the random ints are too close to each other
+2. maybe taking too long to elect a leader, (maybe election timeout is too long)?
+"""
+
 class StateMachine:
 
     def __init__(self, id, other_server_ids):
@@ -68,6 +75,7 @@ class StateMachine:
         self.next_idx_to_send = self.init_next_idx_to_send()
         self.highest_entries_replicated = self.init_highest_entries_replicated()
         self.key_value_store = dict()
+        self.queued_client_requests = []
         # for debugging purposes
         self.getmsg = set()
         self.putmsg = set()
@@ -128,7 +136,6 @@ last one in its log (11 in Figure 7).
         # when timed out
         self.print_msg("DIFFERENCE %d and election %d" % (time.time() * TIME_SCALE - self.last_RPC_time, self.election_timeout))
         #time.sleep(5)
-
 
         raw_msg = sock.recv(SOCK_RECV_SIZE)
         self.print_msg("%s act_as_follower, got raw_msg (%s)" % (self.id, str(raw_msg)))
@@ -229,17 +236,25 @@ last one in its log (11 in Figure 7).
     def respond_fail_or_redirect_to_leader(self, msg):
         global sock
         if self.leader_id == 'FFFF':
-            response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'fail',
-                                  'MID': msg['MID']}
-            self.print_msg(
-                "%s act_as_follower, got msg from client (%s) but returned fail because leader is 'FFFF'" % (self.id, str(
-                    msg['src'])), True)
+            self.queued_client_requests.append(msg)
+            #response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'fail',
+            #                      'MID': msg['MID']}
+            #self.print_msg(
+            #    "%s act_as_follower, got msg from client (%s) but returned fail because leader is 'FFFF'" % (self.id, str(
+            #        msg['src'])), True)
         else:
             response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
                                   'type': 'redirect', 'MID': msg['MID']}
             self.print_msg("%s act_as_follower, got msg from client (%s) and redirect to leader (%s)" % (
             self.id, str(msg['src']), self.leader_id), True)
-        sock.send(json.dumps(response_to_client))
+            sock.send(json.dumps(response_to_client))
+
+            for m in list(self.queued_client_requests):
+                response_prev_requests_to_client = {'src': self.id, "dst": m['src'], 'leader': self.leader_id,
+                                                    'type': 'redirect', 'MID': m['MID']}
+                sock.send(json.dumps(response_prev_requests_to_client))
+                self.queued_client_requests.remove(m)
+
         return
 
 
