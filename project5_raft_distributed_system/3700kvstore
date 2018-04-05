@@ -138,7 +138,7 @@ last one in its log (11 in Figure 7).
             # else:
 
         raw_msg = sock.recv(SOCK_RECV_SIZE)
-        self.print_msg("act_as_follower, got raw_msg (%s)" % str(raw_msg))
+        self.print_msg("%s act_as_follower, got raw_msg (%s)" % (self.id, str(raw_msg)))
         if raw_msg:
             msg = json.loads(raw_msg)
 
@@ -154,7 +154,7 @@ last one in its log (11 in Figure 7).
             #time.sleep(5)
             # receiving heart beat, reset RPC
             if msg['type'] == 'heartbeat':
-                self.print_msg("i %s act_as_follower, got heartbeat from (%s)" % (self.id, msg['src']))
+                self.print_msg("%s act_as_follower, got heartbeat from (%s)" % (self.id, msg['src']))
                 self.become_follower(msg['term'], msg['leader'])
                 return
                 # self.leader_id = msg['leader']
@@ -168,7 +168,7 @@ last one in its log (11 in Figure 7).
                                         'type': 'response_vote',
                                         'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
                     sock.send(json.dumps(response_to_vote))
-                    self.print_msg("act_as_follower, refused to vote for %s" % str(msg['src']))
+                    self.print_msg("%s act_as_follower, refused to vote for %s" % (self.id, str(msg['src'])))
                     return
 
                 # if we're at a lower term, then we should update our term and be ready to grant vote
@@ -197,7 +197,7 @@ last one in its log (11 in Figure 7).
                                             'type': 'response_vote',
                                             'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
                         sock.send(json.dumps(response_to_vote))
-                        self.print_msg("act_as_follower, i %s refused to vote for %s because their term/index isn't higher" % (self.id, str(msg['src'])))
+                        self.print_msg("%s act_as_follower, refused to vote for %s because their term/index isn't higher" % (self.id, str(msg['src'])))
                         return
                 else:
                     # refuse to vote
@@ -205,7 +205,7 @@ last one in its log (11 in Figure 7).
                                         'type': 'response_vote',
                                         'MID': msg['MID'], 'term': self.current_term, 'vote_granted': False}
                     sock.send(json.dumps(response_to_vote))
-                    self.print_msg("act_as_follower, i %s refused to vote for %s because i voted" % (self.id, str(msg['src'])))
+                    self.print_msg("%s act_as_follower, refused to vote for %s because i voted" % (self.id, str(msg['src'])))
                     return
 
             if msg['type'] == 'append_entry_request':
@@ -213,7 +213,7 @@ last one in its log (11 in Figure 7).
                 return
         else:
             # TODO received nothing
-            self.print_msg("act_as_follower, WARNING, raw_msg is empty (%s)" % raw_msg)
+            self.print_msg("%s act_as_follower, WARNING, raw_msg is empty (%s)" % (self.id, raw_msg))
 
 
     def respond_fail_or_redirect_to_leader(self, msg):
@@ -222,13 +222,13 @@ last one in its log (11 in Figure 7).
             response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'fail',
                                   'MID': msg['MID']}
             self.print_msg(
-                "act_as_follower, got msg from client (%s) but returned fail because leader is 'FFFF'" % str(
-                    msg['src']), True)
+                "%s act_as_follower, got msg from client (%s) but returned fail because leader is 'FFFF'" % (self.id, str(
+                    msg['src'])), True)
         else:
             response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
                                   'type': 'redirect', 'MID': msg['MID']}
-            self.print_msg("act_as_follower, got msg from client (%s) and redirect to leader (%s)" % (
-            str(msg['src']), self.leader_id), True)
+            self.print_msg("%s act_as_follower, got msg from client (%s) and redirect to leader (%s)" % (
+            self.id, str(msg['src']), self.leader_id), True)
         sock.send(json.dumps(response_to_client))
         return
 
@@ -371,9 +371,9 @@ last one in its log (11 in Figure 7).
 
         # checks if received enough votes
         # if gathered majority votes, become leader and send heart beats
-        if self.votes_count >= majority_votes:
-            self.become_leader()
-            return
+        #if self.votes_count >= majority_votes:
+        #    self.become_leader()
+        #    return
 
         # split vote senario
         self.print_msg("in process_vote_results, cur_time - start_election_time: %d and election timeout: %d" % (
@@ -477,7 +477,7 @@ last one in its log (11 in Figure 7).
         # send regular heartbeat
         #self.send_regular_heartbeat()
 
-        self.print_msg("act_as_leader, scheduled sending heart beat i am (%s)" % self.id)
+        self.print_msg("%s act_as_leader, start processing client messages" % self.id, True)
 
         raw_msg = sock.recv(SOCK_RECV_SIZE)
         if raw_msg:
@@ -506,14 +506,12 @@ last one in its log (11 in Figure 7).
                 response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
                                       'type': 'ok', 'MID': msg['MID'], 'value': value}
                 sock.send(json.dumps(response_to_client))
-                self.print_msg("act_as_leader, i am (%s), respond GET request to client" % self.id)
+                self.print_msg("%s act_as_leader, responded GET with ok to client msg(%s)" % (self.id, msg['MID']), True)
                 #time.sleep(3)
 
             # handle put from client
             elif msg['type'] == 'put':
                 #self.send_regular_heartbeat()
-                self.print_msg("act_as_leader, i am (%s), got put request from client" % self.id)
-
                 # append this command to our own log
                 #entry = self.append_new_log_entry('put', msg['MID'])
                 # requests the followers to append this command to their logs
@@ -526,8 +524,10 @@ last one in its log (11 in Figure 7).
                 response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
                                       'type': 'ok', 'MID': msg['MID']}
                 sock.send(json.dumps(response_to_client))
-                self.print_msg("act_as_leader, i am (%s), respond PUT request to client" % self.id)
+                self.print_msg("%s act_as_leader, responded PUT request with ok to client msg(%s)" % (self.id, msg['MID'], True)
                 #time.sleep(3)
+            else:
+                self.print_msg("WEIRD, %s got %s from client" % (self.id, msg['type']), True)
 
     """
     Appends new command to its log as a new entry
