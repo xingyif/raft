@@ -129,24 +129,10 @@ last one in its log (11 in Figure 7).
         self.print_msg("DIFFERENCE %d and election %d" % (time.time() * TIME_SCALE - self.last_RPC_time, self.election_timeout))
         #time.sleep(5)
 
-        if self.leader_id == 'FFFF':
-            if self.voted_for is None:
-                self.become_candidate()
-                return
-        # TODO check before becoming a candidate, did i ever receive any request vote?
-        if time.time() * TIME_SCALE - self.last_RPC_time >= self.election_timeout:
-            self.print_msg("DIFFERENCE %d and election %d" % (time.time() * TIME_SCALE - self.last_RPC_time, self.election_timeout))
-            #self.print_msg("in act_as_follower, election TIMEOUT!", True)
-            #time.sleep(5)
-
-
-            # Rules for Servers, Followers
-            if self.voted_for is None:
-                self.print_msg("%s becoming candidate" % str(self.id), True)
-                #time.sleep(5)
-                self.become_candidate()
-                return
-            # else:
+        #if self.leader_id == 'FFFF':
+        #    if self.voted_for is None:
+        #        self.become_candidate()
+        #        return
 
         raw_msg = sock.recv(SOCK_RECV_SIZE)
         self.print_msg("%s act_as_follower, got raw_msg (%s)" % (self.id, str(raw_msg)))
@@ -225,6 +211,19 @@ last one in its log (11 in Figure 7).
         else:
             # TODO received nothing
             self.print_msg("%s act_as_follower, WARNING, raw_msg is empty (%s)" % (self.id, raw_msg))
+
+
+        # TODO check before becoming a candidate, did i ever receive any request vote?
+        if time.time() * TIME_SCALE - self.last_RPC_time >= self.election_timeout:
+            self.print_msg("DIFFERENCE %d and election %d" % (time.time() * TIME_SCALE - self.last_RPC_time, self.election_timeout))
+            #self.print_msg("in act_as_follower, election TIMEOUT!", True)
+
+            # Rules for Servers, Followers
+            if self.voted_for is None:
+                self.print_msg("%s becoming candidate" % str(self.id), True)
+                self.become_candidate()
+                return
+            # else:
 
 
     def respond_fail_or_redirect_to_leader(self, msg):
