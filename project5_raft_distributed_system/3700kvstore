@@ -69,6 +69,9 @@ class StateMachine:
         self.next_idx_to_send = self.init_next_idx_to_send()
         self.highest_entries_replicated = self.init_highest_entries_replicated()
         self.key_value_store = dict()
+        # for debugging purposes
+        self.getmsg = set()
+        self.putmsg = set()
 
     def print_msg(self, msg, bool=False):
         if bool:
@@ -493,6 +496,7 @@ last one in its log (11 in Figure 7).
 
                 # log replication
                 key = msg['key']
+                self.getmsg.add(msg['MID'])
                 #entry = self.append_new_log_entry('get', msg['MID'])
                 #self.issue_append_entries_RPC(entry)
                 # handle RPC response from the followers, make sure they actually commited before moving on
@@ -506,11 +510,12 @@ last one in its log (11 in Figure 7).
                 response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
                                       'type': 'ok', 'MID': msg['MID'], 'value': value}
                 sock.send(json.dumps(response_to_client))
-                self.print_msg("%s act_as_leader, responded GET with ok to client msg(%s)" % (self.id, msg['MID']), True)
+                self.print_msg("%s act_as_leader, responded GET with ok to client msg(%s), total GET %d" % (self.id, msg['MID'], len(self.getmsg)), True)
                 #time.sleep(3)
 
             # handle put from client
             elif msg['type'] == 'put':
+                self.putmsg.add(msg['MID'])
                 #self.send_regular_heartbeat()
                 # append this command to our own log
                 #entry = self.append_new_log_entry('put', msg['MID'])
@@ -524,10 +529,10 @@ last one in its log (11 in Figure 7).
                 response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
                                       'type': 'ok', 'MID': msg['MID']}
                 sock.send(json.dumps(response_to_client))
-                self.print_msg("%s act_as_leader, responded PUT request with ok to client msg(%s)" % (self.id, msg['MID'], True)
+                self.print_msg("%s act_as_leader, responded PUT request with ok to client msg(%s), total PUT %d" % (self.id, msg['MID'], len(self.putmsg)), True)
                 #time.sleep(3)
             else:
-                self.print_msg("WEIRD, %s got %s from client" % (self.id, msg['type']), True)
+                self.print_msg("WEIRD, %s got %s from %s" % (self.id, msg['type'], msg['src']), True)
 
     """
     Appends new command to its log as a new entry
