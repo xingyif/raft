@@ -29,10 +29,10 @@ my_id = sys.argv[1]
 # The ID numbers of all the other replicas
 replica_ids = sys.argv[2:]
 
-RAND_MIN = 350 # 150
-RAND_MAX = 700 # 300
+RAND_MIN = 51 # 150
+RAND_MAX = 100 # 300
 TIME_SCALE = 1000
-HEARTBEAT_INTERVAL_IN_SEC = 0.15 # 150 milliseconds
+HEARTBEAT_INTERVAL_IN_SEC = 0.05 # 50 milliseconds
 
 # Connect to the network. All messages to/from other replicas and clients will
 # occur over this socket
@@ -57,7 +57,8 @@ class StateMachine:
         self.voted_for = None
         self.last_RPC_time = time.time() * TIME_SCALE
         # initial random, then record RTT in list, get mean + x miliseconds as timeout
-        self.election_timeout = randint(RAND_MIN, RAND_MAX) #TODOD reset after receives a heartbeat from leader
+        self.election_timeout = random.uniform(RAND_MIN, RAND_MAX) #TODOD reset after receives a heartbeat from leader
+        print("%s has election_timeout %d" % (self.id, self.election_timeout))
         self.votes_count = 0
         self.other_server_ids = other_server_ids
         self.last_applied_log_entry = 0 # TODO this is probably len(log) -1
@@ -74,6 +75,7 @@ class StateMachine:
         self.putmsg = set()
 
     def print_msg(self, msg, bool=False):
+        bool = False
         if bool:
             print(msg)
         return
