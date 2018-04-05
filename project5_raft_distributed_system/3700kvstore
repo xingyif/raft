@@ -81,7 +81,7 @@ class StateMachine:
         self.putmsg = set()
 
     def print_msg(self, msg, bool=False):
-        bool = False
+        # bool = False
         if bool:
             print(msg)
         return
@@ -667,6 +667,7 @@ def main():
         #print("replicate id (%s)" % id)
     my_server.run()
 
+    '''
     while True:
         ready = select.select([sock], [], [], 0.1)[0]
 
@@ -681,7 +682,7 @@ def main():
             if msg['type'] in ['get', 'put']:
                 response = {'src': msg['dst'], "dst": msg['src'], "leader": msg['leader'], "type": "fail", "MID": msg['MID']}
                 sock.send(json.dumps(response))
-
+    '''
 
 if __name__ == "__main__":
     main()
