@@ -49,6 +49,26 @@ Election:
 			-Each candidate times out and starts a new election by incrementing its term
 			-Without randomized timeouts, split votes can remain indefinitely
 
+
+
+Log Replication:
+	1. Leader receives client command
+	2. Leader appends command to its log and tells followers to do the same
+	3. Once a majority of replicas have appended the command, the entry is considered committed
+	4. The leader applies the command to its machine and responds the result of that command to the client
+	5. Leader tells followers to do the same
+
+
+
+
+
+
+
+
+
+
+
+
 Log Replication:
 	1. Leader receives client command
 	2. Leader appends the command to its log as a new entry
