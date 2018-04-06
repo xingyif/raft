@@ -657,22 +657,5 @@ def main():
         #print("replicate id (%s)" % id)
     my_server.run()
 
-    '''
-    while True:
-        ready = select.select([sock], [], [], 0.1)[0]
-
-        if sock in ready:
-            msg_raw = sock.recv(SOCK_RECV_SIZE)
-
-            if len(msg_raw) == 0: continue
-            msg = json.loads(msg_raw)
-
-            # basic support for responding to client get() and put() requests
-            # {"src": "<ID>", "dst": "<ID>", "leader": "<ID>", "type": "fail", "MID": "<a unique string>"}
-            if msg['type'] in ['get', 'put']:
-                response = {'src': msg['dst'], "dst": msg['src'], "leader": msg['leader'], "type": "fail", "MID": msg['MID']}
-                sock.send(json.dumps(response))
-    '''
-
 if __name__ == "__main__":
     main()

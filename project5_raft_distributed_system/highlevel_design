@@ -49,13 +49,21 @@ Election:
 			-Each candidate times out and starts a new election by incrementing its term
 			-Without randomized timeouts, split votes can remain indefinitely
 
+
 Log Replication:
-	1. Leader receives client command
-	2. Leader appends the command to its log as a new entry
+	1.  Leader receives client command
+	2.  Leader applies the command to its log as a new entry
 	2.1 issues AppendEntries RPCs in parallel to each of the other servers
+
+    3.  Replicas send back acks for RPC
+    4.  if Leader receives N/2+1, update Leader last_commited_idx (commited)
+    4.1 send results back to the client
+    5.  send commit RPC requests to the replicas
 
 	3. When the entry has been safely replicated (process described below), the leader will apply the entry to its state machine and return the result to the client
 	4. If followers crash or packets are lost, the leader retries AppendEntires RPCs indefinitely until all followers eventually store all log entries
+
+
 
 To bring a follower’s log into consistency with its own,
 the leader must find the latest log entry where the two
