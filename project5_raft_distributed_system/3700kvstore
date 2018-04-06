@@ -339,6 +339,7 @@ last one in its log (11 in Figure 7).
                 # if in RPC, leader's term is at least as large as self.cur_term => become_follower
                 # if term < self.cur_term, then reject RPC and continue as a candidate
                 self.print_msg("i %s received this vote message: %s" % (self.id, vote))
+                #SP: NEED TO HANDLE REQUEST
                 if vote['type'] == 'heartbeat' or vote['type'] == 'append_entry_request':
                     if self.current_term <= vote['term']:
                         self.print_msg(
@@ -434,19 +435,24 @@ last one in its log (11 in Figure 7).
                 self.print_msg("handle_AppendEntriesRPC_request, i(%s) REFUSED TO appended new entry from (%s)" % (
                 str(self.id), str(msg['src'])))
                 #time.sleep(1)
-                break
+                continue
 
             # Follower replies false if log doesn't contain an entry at prevLogIndex
             # whose term matches prevLogTerm (5.3)
             # entry at prevLogIndex doesn't have term that matches prev_log_term
-            print(msg['prev_log_idx'])
-            (mid_prev, command_prev, term_prev) = self.log[msg['prev_log_idx']]
-            if term_prev != msg['prev_log_term']:
+            try: 
+                (mid_prev, command_prev, term_prev) = self.log[msg['prev_log_idx']]
+                if term_prev != msg['prev_log_term']:
+                    sock.send(json.dumps(response))
+                    self.print_msg("handle_AppendEntriesRPC_request, i(%s) REFUSED TO appended new entry from (%s)" % (
+                    str(self.id), str(msg['src'])))
+                    #time.sleep(1)
+                    continue
+            except IndexError:
                 sock.send(json.dumps(response))
-                self.print_msg("handle_AppendEntriesRPC_request, i(%s) REFUSED TO appended new entry from (%s)" % (
-                str(self.id), str(msg['src'])))
-                #time.sleep(1)
-                break
+                continue
+                #should be return False
+
             # TODO what is the difference?????????????????????????????????????????????
             # existing entry conflicts with a new one
             idx = msg['prev_log_idx'] # TODO prev entry or ALL entries?
@@ -524,7 +530,9 @@ last one in its log (11 in Figure 7).
                 majority_server_appended = self.handle_appendEntriesRPC_acks()
                 # if got majority acks, then commit the command
                 if majority_server_appended:
+                    self.log.append(entry)
                     self.highest_committed_entry_idx += 1
+                    self.issue_append_entries_RPC(entry, self.other_server_ids)
                     # apply the command
                     value = self.key_value_store.get(key) # returns None if not exist
                     self.last_applied_entry_idx += 1
@@ -550,7 +558,9 @@ last one in its log (11 in Figure 7).
                 majority_server_appended = self.handle_appendEntriesRPC_acks()
                 # if got majority acks, then commit the command
                 if majority_server_appended:
+                    self.log.append(entry)
                     self.highest_committed_entry_idx += 1
+                    self.issue_append_entries_RPC(entry, self.other_server_ids)
                     # put the key and value into the map
                     self.key_value_store[msg['key']] = msg['value']
                     self.last_applied_entry_idx += 1
@@ -582,6 +592,7 @@ last one in its log (11 in Figure 7).
         entries.append(entry)
         (mid, command, term) = entry
         prev_log_idx = self.highest_committed_entry_idx
+        print(prev_log_idx)
         (prev_mid, prev_command, prev_log_term) = self.log[prev_log_idx]
         for server_id in servers_to_send:
             append_entry_RPC = {'src': self.id, 'dst': server_id, 'leader': self.id, 'type': 'append_entry_request',
@@ -614,7 +625,7 @@ last one in its log (11 in Figure 7).
             msg = json.loads(raw_msg)
 
             if msg['type'] == 'get' or msg['type'] == 'put':
-                self.respond_fail_or_redirect_to_leader(vote)
+                self.respond_fail_or_redirect_to_leader(msg)
                 continue
 
             if msg['term'] > self.current_term:
