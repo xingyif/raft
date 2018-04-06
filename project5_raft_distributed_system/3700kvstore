@@ -613,6 +613,10 @@ last one in its log (11 in Figure 7).
             if len(raw_msg) == 0: break
             msg = json.loads(raw_msg)
 
+            if msg['type'] == 'get' or msg['type'] == 'put':
+                self.respond_fail_or_redirect_to_leader(vote)
+                continue
+
             if msg['term'] > self.current_term:
                 # update term and become a follower
                 self.become_follower(msg['term'], msg['leader'])
