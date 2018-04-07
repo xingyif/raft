@@ -25,7 +25,6 @@ messages to/from clients).
 
 TODO for Saturday 04/06:
 1. resend RPC
-2. update leader's last_applied_entry_idx
 3. checklist pg.4
 If there exists an N such that N > commitIndex, a majority
 of matchIndex[i] >= N, and log[N].term == currentTerm: set commitIndex = N
@@ -142,15 +141,12 @@ last one in its log (11 in Figure 7).
         # if election timeout
         # when timed out
         self.print_msg("DIFFERENCE %d and election %d" % (time.time() * TIME_SCALE - self.last_RPC_time, self.election_timeout))
-        #time.sleep(5)
         if time.time() * TIME_SCALE - self.last_RPC_time >= self.election_timeout:
             self.print_msg("DIFFERENCE %d and election %d" % (time.time() * TIME_SCALE - self.last_RPC_time, self.election_timeout))
             #self.print_msg("in act_as_follower, election TIMEOUT!", True)
-            #time.sleep(5)
             # Rules for Servers, Followers
             if self.voted_for is None:
                 self.print_msg("%s becoming candidate" % str(self.id), True)
-                #time.sleep(5)
                 self.become_candidate()
                 return
             # else:
@@ -340,10 +336,8 @@ last one in its log (11 in Figure 7).
                 break
             else:
                 self.last_RPC_time = time.time() * TIME_SCALE
-                #self.election_timeout = randint(RAND_MIN, RAND_MAX)
                 # received some response
                 vote = json.loads(raw_vote)
-                # {'src': self.id, 'dst': server_id, 'leader': 'FFFF', 'type': 'response_vote', 'term': self.current_term, 'vote_granted': True}
 
                 # check if msg is from client, if it is check who the leader is and response
                 # handling client's requests, redirect clients to leader
@@ -356,8 +350,9 @@ last one in its log (11 in Figure 7).
                 # if in RPC, leader's term is at least as large as self.cur_term => become_follower
                 # if term < self.cur_term, then reject RPC and continue as a candidate
                 self.print_msg("i %s received this vote message: %s" % (self.id, vote))
+
                 #SP: NEED TO HANDLE REQUEST
-                if vote['type'] == 'heartbeat' or vote['type'] == 'append_entry_request':
+                if vote['type'] in ['heartbeat', 'append_entry_request', 'append_entry_response']:
                     if self.current_term <= vote['term']:
                         self.print_msg(
                             "in process_vote_results, i (%s) become a FOLLOWER received heartbeat from leader (%s)" % (
@@ -366,7 +361,6 @@ last one in its log (11 in Figure 7).
                         return
 
                 if vote['type'] == 'response_vote':
-                    #print("%s received response_vote from %s, vote_granted: %s" % (self.id, vote['src'], str(vote['vote_granted'])))
                     if self.current_term >= vote['term']: # TODO >
                         if vote['vote_granted']:
                             # collect vote
@@ -379,14 +373,12 @@ last one in its log (11 in Figure 7).
 
                         else:
                             # they didn't vote for me
-                            self.print_msg("in process_vote_results, i (%s) DIDNOT got vote from (%s)" % (str(self.id), str(vote['src'])))
                             self.print_msg("in process_vote_results, i %s DIDN't get vote from %s" % (self.id, vote['src']))
                             self.print_msg("in process_vote_results, i %s current all votes %d" % (self.id, self.votes_count))
                         continue
                     # if received from a machine with an at least as high term
                     elif self.current_term < vote['term']: # TODO <=
                         self.print_msg("in process_vote_results, i (%s) become a FOLLOWER because (%s) has a higher term" % (str(self.id), str(vote['src'])))
-                        self.print_msg("in process_vote_results, i %s became follower because %s has a higher term" % (self.id, vote['src']))
                         self.print_msg("in process_vote_results, i %s current all votes %d" % (self.id, self.votes_count))
                         self.become_follower(vote['term'], vote['leader']) # update term TODO what is vote['leader;] is dead
                         return
@@ -473,7 +465,7 @@ last one in its log (11 in Figure 7).
             #  delete the existing entry and all that follow it (5.3)
             prev_log_idx = msg['prev_log_idx']
             (prev_mid, prev_command, prev_term) = self.log[prev_log_idx]
-            if prev_term == term: # TODO redudent, never outside if, if I got here
+            if prev_term == term: # TODO redundent, never outside if, if I got here
                 # delete all following entries after the current one
                 self.log = self.log[:prev_log_idx+1]
                 # append any new entries not already in the log
@@ -530,6 +522,13 @@ last one in its log (11 in Figure 7).
             msg = json.loads(raw_msg)
             # TODO do i care if some one sends me a vote requests?
             # if they decide to be a candiadate and increment term, what should i do?
+
+            # check the term, convert to follower if necessary in case of a partition
+            if msg['type'] not in ['get', 'put']:
+                if self.current_term < msg['term']:
+                    self.become_follower(msg['term'], msg['leader'])
+                    return
+
             if msg['type'] == 'get':
                 self.print_msg("act_as_leader, i am (%s), got get request from client" % self.id)
 
@@ -640,15 +639,15 @@ last one in its log (11 in Figure 7).
             msg = json.loads(raw_msg)
 
             if msg['type'] == 'get' or msg['type'] == 'put':
+                # TODO pass to handleMessages
                 self.respond_fail_or_redirect_to_leader(msg)
                 continue
 
-            if msg['term'] > self.current_term:
-                # update term and become a follower
-                self.become_follower(msg['term'], msg['leader'])
-                self.print_msg(
-                    "handle_AppendEntriesRPC_response, i am (%s), step down to a follower from a leader" % self.id)
-                return
+            if msg['type'] not in ['get', 'put']:
+                if self.current_term < msg['term']:
+                    # update term and become a follower
+                    self.become_follower(msg['term'], msg['leader'])
+                    return
 
             if msg['type'] == 'append_entry_response':
                 # follower accepted the request
@@ -700,9 +699,6 @@ def main():
     global last, my_id, replica_ids, sock, SOCK_RECV_SIZE
 
     my_server = StateMachine(my_id, replica_ids)
-    #print("in main, my_id (%s)" % str(my_id))
-    #for id in replica_ids:
-        #print("replicate id (%s)" % id)
     my_server.run()
 
 
