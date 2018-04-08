@@ -649,7 +649,9 @@ last one in its log (11 in Figure 7).
         entries.append(entry)
         (mid, command, term) = entry
         prev_log_idx = self.highest_committed_entry_idx
+        self.print_msg("%s about to send all servers RPC request, prev_log_idx %d" % (self.id, prev_log_idx), True)
         (prev_mid, prev_command, prev_log_term) = self.log[prev_log_idx]
+        self.print_msg("%s about to send all servers RPC request, prev_log_term %d" % (self.id, prev_log_term), True)
         for server_id in servers_to_send:
             append_entry_RPC = {'src': self.id, 'dst': server_id, 'leader': self.id, 'type': 'append_entry_request',
                                 'MID': mid, 'term': self.current_term,
