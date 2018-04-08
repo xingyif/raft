@@ -92,12 +92,10 @@ class StateMachine:
         self.print_msg("start running ...", True)
         while True:
             if self.state == 'follower':
-                self.print_msg("%s about to act as follower" % self.id, True)
                 self.act_as_follower()
            # elif self.state == 'candidate':
            #     self.act_as_candidate()
             elif self.state == 'leader':
-                #self.print_msg("i %s am ACTING AS LEADER" % self.id, True)
                 self.act_as_leader()
 
 
@@ -437,7 +435,8 @@ last one in its log (11 in Figure 7).
     def handle_AppendEntriesRPC_request(self, msg):
         response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'term': self.current_term,
                     'type': 'append_entry_response', 'MID': msg['MID'], 'prev_log_idx': msg['prev_log_idx'],
-                    'prev_log_term': msg['prev_log_term'], 'entries': msg['entries'], 'command': msg['command'], 'accept_request': False}
+                    'prev_log_term': msg['prev_log_term'], 'entries': msg['entries'],
+                    'command': msg['command'], 'accept_request': False}
         # tuple for getting entry values
         entries = msg['entries']
 
@@ -482,7 +481,8 @@ last one in its log (11 in Figure 7).
             # reply success after successfully following this step and the subsequent ones
             response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'term': self.current_term,
                         'type': 'append_entry_response', 'MID': msg['MID'], 'prev_log_idx': msg['prev_log_idx'],
-                        'prev_log_term': msg['prev_log_term'], 'entries': msg['entries'], 'accept_request': True}
+                        'prev_log_term': msg['prev_log_term'], 'entries': msg['entries'],
+                        'command': msg['command'], 'accept_request': True}
             sock.send(json.dumps(response))
             self.print_msg("%s handle_AppendEntriesRPC_request, ACCEPTED appended new entry from (%s)"
                            % (str(self.id), str(msg['src'])), True)
