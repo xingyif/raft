@@ -83,7 +83,6 @@ class StateMachine:
 
     def run(self):
         self.print_msg("start running ...", True)
-        # time.sleep(1)
         while True:
             if self.state == 'follower':
                 self.print_msg("%s about to act as follower" % self.id)
@@ -96,7 +95,7 @@ class StateMachine:
 
 
     def print_msg(self, msg, bool=False):
-        #bool = False
+        bool = False
         if bool:
             print(msg)
         return
@@ -416,7 +415,6 @@ last one in its log (11 in Figure 7).
         self.votes_count = 0
         self.send_regular_heartbeat()
         self.print_msg("i %s HAVE BECOME LEADER" % self.id, True)
-        time.sleep(5)
 
 
     """
@@ -538,7 +536,7 @@ last one in its log (11 in Figure 7).
                 self.getmsg.add(msg['MID'])
                 command = json.dumps({'cmd': 'get', 'key': key})
                 entry = self.append_new_log_entry(command, msg['MID'])
-                #self.issue_append_entries_RPC(entry, self.other_server_ids)
+                self.issue_append_entries_RPC(entry, self.other_server_ids)
                 # handle RPC response from the followers, make sure they actually commited before moving on
                 #servers_to_resend = self.handle_appendEntriesRPC_acks()
                 N = len(self.other_server_ids) + 1
@@ -589,7 +587,7 @@ last one in its log (11 in Figure 7).
                 command = json.dumps({'cmd': 'put', 'key': msg['key'], 'value': msg['value']})
                 entry = self.append_new_log_entry(command, msg['MID'])
                 # requests the followers to append this command to their logs
-                #self.issue_append_entries_RPC(entry, self.other_server_ids)
+                self.issue_append_entries_RPC(entry, self.other_server_ids)
                 # handle RPC response from the followers, make sure they actually commited before moving on
                 #servers_to_resend = self.handle_appendEntriesRPC_acks()
                 N = len(self.other_server_ids) + 1
@@ -646,7 +644,6 @@ last one in its log (11 in Figure 7).
         entries.append(entry)
         (mid, command, term) = entry
         prev_log_idx = self.highest_committed_entry_idx
-        print(prev_log_idx)
         (prev_mid, prev_command, prev_log_term) = self.log[prev_log_idx]
         for server_id in servers_to_send:
             append_entry_RPC = {'src': self.id, 'dst': server_id, 'leader': self.id, 'type': 'append_entry_request',
