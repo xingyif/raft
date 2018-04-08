@@ -444,8 +444,8 @@ last one in its log (11 in Figure 7).
             # term < currentTerm, then return False, leader will update itself and become a follower
             if term < self.current_term:
                 sock.send(json.dumps(response))
-                self.print_msg("%s handle_AppendEntriesRPC_request, REFUSED TO appended new entry from (%s)" % (
-                str(self.id), str(msg['src'])), True)
+                self.print_msg("%s handle_AppendEntriesRPC_request, REFUSED TO appended new entry from (%s), because term in entry %d < myterm %d" % (
+                str(self.id), str(msg['src']), term, self.current_term), True)
                 continue
 
             # Follower replies false if log doesn't contain an entry at prevLogIndex
@@ -455,13 +455,13 @@ last one in its log (11 in Figure 7).
                 (mid_prev, prev_command, prev_term) = self.log[msg['prev_log_idx']]
                 if prev_term != msg['prev_log_term']:
                     sock.send(json.dumps(response))
-                    self.print_msg("%s handle_AppendEntriesRPC_request, REFUSED TO appended new entry from (%s)" % (
-                    str(self.id), str(msg['src'])), True)
+                    self.print_msg("%s handle_AppendEntriesRPC_request, REFUSED TO appended new entry from (%s), my prev_term(%d) at idx(%d) != msg[prev_term] %d" % (
+                    str(self.id), str(msg['src']), prev_term, msg['prev_log_idx'], msg['prev_log_term']), True)
                     continue
             except IndexError:
                 sock.send(json.dumps(response))
-                self.print_msg("%s handle_AppendEntriesRPC_request, REFUSED TO appended new entry from (%s)" % (
-                    str(self.id), str(msg['src'])), True)
+                self.print_msg("%s handle_AppendEntriesRPC_request, REFUSED TO appended new entry from (%s), i don't have idx(%d) in my log" % (
+                    str(self.id), str(msg['src']), msg['prev_log_idx']), True)
                 continue
 
             # step 3 & 4 & 5
