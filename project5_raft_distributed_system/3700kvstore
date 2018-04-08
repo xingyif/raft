@@ -469,7 +469,7 @@ last one in its log (11 in Figure 7).
         #  delete the existing entry and all that follow it (5.3)
         prev_log_idx = msg['prev_log_idx']
         (prev_mid, prev_command, prev_term) = self.log[prev_log_idx]
-        self.print_msg("%s handle_AppendEntriesRPC_request, about to append entry, prev_term %d, term %d" % (self.id, prev_term, term), True)
+        self.print_msg("%s handle_AppendEntriesRPC_request, about to append entry, prev_term %d, term %d" % (self.id, prev_term, msg['term']), True)
         # delete all following entries after the current one
         if prev_term != msg['prev_log_term']:
             self.log = self.log[:prev_log_idx+1]
