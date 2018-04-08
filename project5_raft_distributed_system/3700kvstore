@@ -142,21 +142,21 @@ class StateMachine:
     def apply_commands(self):
         global sock
 
+        pass
+        '''
         while self.commit_index > self.last_applied:
             self.last_applied += 1
-            if self.last_applied < len(self.log):
-                (mid, command, term) = self.log[self.last_applied]
-                command = json.loads(command)
-                if command['cmd'] == 'put':
-                    self.key_value_store[command['key']] = command['value']
-                if self.state == 'leader':
-                    response = self.responses_to_client[mid]
-                    self.print_msg(json.dumps(response), True)
-                    sock.send(json.dumps(response))
-            else:
-                print("COMMIT: " + str(self.commit_index) + "LAST: " + str(self.last_applied))
-                print("ID %s STATE %s" % (self.id, self.state))
-                print(str(self.log))
+            print("LENGTH: " + str(len(self.log)) + "LAST_APPLIED: " + str(self.last_applied) + "COMMIT: " + str(self.commit_index))
+            print("LOG: " + str(self.log[self.last_applied]) + "LEN: " + str(len(self.log[self.last_applied])))
+            (mid, command, term) = self.log[self.last_applied]
+            command = json.loads(command)
+            if command['cmd'] == 'put':
+                self.key_value_store[command['key']] = command['value']
+            if self.state == 'leader':
+                response = self.responses_to_client[mid]
+                #self.print_msg(json.dumps(response), True)
+                sock.send(json.dumps(response))
+        '''
 
 
 
@@ -252,7 +252,7 @@ class StateMachine:
                 if prev_term != msg['prev_log_term']:
                     sock.send(json.dumps(response))
                     return
-            except:
+            except IndexError:
                 sock.send(json.dumps(response))
                 return
             response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'term': self.current_term,
@@ -382,18 +382,24 @@ class StateMachine:
             if msg['accept_request']:
                 value = self.number_appended[msg['MID']]
                 self.number_appended[msg['MID']] = value + 1
+                self.next_index[msg['src']] = len(self.log)
                 if self.number_appended[msg['MID']] >= majority:
                     self.commit_index += len(msg['entries'])
-                    print("ARRIVED HERE")
+                    if self.commit_index >= len(self.log):
+                        self.commit_index = len(self.log) - 1
                     self.send_append_request(msg['entries'], msg['MID'])
                     #we don't want to bother with this entry again
                     self.number_appended[msg['MID']] = -1000
             else:
                 value = self.next_index[msg['src']]
+                print("IDX: " + str(value))
+                print("LEN: " + str(len(self.log)))
                 temp_entries = []
                 temp_entries.append(self.log[value])
                 self.next_index[msg['src']] = value - 1
-                send_entries = temp_entries + msg['entries']
+                send_entries = []
+                send_entries.extend(temp_entries)
+                send_entries.extend(msg['entries'])
                 self.append_one_server(send_entries, msg['src'], msg['MID'])
 
     def send_append_request(self, entries, MID):
