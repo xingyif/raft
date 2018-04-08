@@ -606,7 +606,7 @@ last one in its log (11 in Figure 7).
                         # ask other servers to commit the entry
                         # decide to construct new entry because i want the program to be stateless, should follow the msg sent between servers
                         # entry = (msg['MID'], msg['command'], msg['term'])  # TODO could also get the entry from self.log[last_applied], make sure they are the same
-                        self.issue_append_entries_RPC(entry, self.other_server_ids)
+                        # self.issue_append_entries_RPC(entry, self.other_server_ids)
                         self.print_msg("%s act_as_leader, ask servers to commit GET command %s" % (self.id, str(command)), True)
                     else: # cmd is PUT
                         # put the key and value into the map
@@ -625,7 +625,7 @@ last one in its log (11 in Figure 7).
                         self.print_msg("%s act_as_leader, ask servers to commit entry %s" % (self.id, str(entry)), True)
                         self.print_msg("%s act_as_leader, ask servers to commit entry from log %s" % (self.id, str(self.log[self.last_applied_entry_idx])), True)
                         # entry = (msg['MID'], msg['command'], msg['term'])  # TODO could also get the entry from self.log[last_applied], make sure they are the same
-                        self.issue_append_entries_RPC(entry, self.other_server_ids)
+                        # self.issue_append_entries_RPC(entry, self.other_server_ids)
                         self.print_msg("%s act_as_leader, ask servers to commit PUT command %s" % (self.id, str(command)), True)
 
 
