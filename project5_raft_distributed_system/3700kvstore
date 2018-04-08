@@ -583,49 +583,50 @@ last one in its log (11 in Figure 7).
                     self.handle_appendEntriesRPC_ack(msg)
                 else:
                     # got majority acks back, respond client
+                    # TODO could also get the entry from self.log[last_applied], make sure they are the same
+                    entry = (msg['MID'], msg['command'], msg['term'])
                     command = json.loads(msg['command'])
-                    self.highest_committed_entry_idx += 1
+                    self.highest_committed_entry_idx = self.log.index(entry)
                     self.print_msg("%s act_as_leader, got majority RPC, commit command: %s" % (self.id, command), True)
-                    if self.highest_committed_entry_idx > self.last_applied_entry_idx:
-                        self.last_applied_entry_idx += 1
-                        # apply the command # TODO we could also get the cmd from log[last_applied], make sure they are the same
-                        if command['cmd'] == 'get':
-                            value = self.key_value_store.get(command['key'])  # returns None if not exist
-                            self.print_msg(
-                                "%s act_as_leader, applied GET command: %s" % (self.id, command), True)
-                            # if the key doesn't exist, return empty string, in project spec
-                            if value is None:
-                                value = ''
-                            # response to client
-                            response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
-                                                'type': 'ok', 'MID': msg['MID'], 'value': value}
-                            sock.send(json.dumps(response_to_client))
-                            self.print_msg("%s act_as_leader, responded GET with ok to client msg(%s), total GET %d" % (self.id, msg['MID'], len(self.getmsg)), True)
-                            # ask other servers to commit the entry
-                            # decide to construct new entry because i want the program to be stateless, should follow the msg sent between servers
-                            entry = (msg['MID'], msg['command'], msg['term'])  # TODO could also get the entry from self.log[last_applied], make sure they are the same
-                            self.issue_append_entries_RPC(entry, self.other_server_ids)
-                            self.print_msg("%s act_as_leader, ask servers to commit GET command %s" % (self.id, str(command)), True)
-                        else: # cmd is PUT
-                            # put the key and value into the map
-                            self.key_value_store[command['key']] = command['value']
-                            self.print_msg(
-                                "%s act_as_leader, applied PUT command: %s" % (self.id, command), True)
-                            response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
-                                                  'type': 'ok', 'MID': msg['MID']}
-                            sock.send(json.dumps(response_to_client))
-                            self.print_msg(
-                                "%s act_as_leader, responded PUT request with ok to client msg(%s), total PUT %d" % (
-                                    self.id, msg['MID'], len(self.putmsg)), True)
-                            # ask other servers to commit the entry
-                            entry = (msg['MID'], msg['command'], msg['term'])  # TODO could also get the entry from self.log[last_applied], make sure they are the same
-                            self.print_msg("%s act_as_Leader, log %s" % (self.id, self.log), True)
-                            self.print_msg("%s act_as_Leader, last_applied %d, last_commited %d" % (self.id, self.last_applied_entry_idx, self.highest_committed_entry_idx), True)
-                            self.print_msg("%s act_as_leader, ask servers to commit entry %s" % (self.id, str(entry)), True)
-                            self.print_msg("%s act_as_leader, ask servers to commit entry from log %s" % (self.id, str(self.log[self.last_applied_entry_idx])), True)
-
-                            self.issue_append_entries_RPC(entry, self.other_server_ids)
-                            self.print_msg("%s act_as_leader, ask servers to commit PUT command %s" % (self.id, str(command)), True)
+                    # if self.highest_committed_entry_idx > self.last_applied_entry_idx:
+                    self.last_applied_entry_idx = self.log.index(entry)
+                    # apply the command # TODO we could also get the cmd from log[last_applied], make sure they are the same
+                    if command['cmd'] == 'get':
+                        value = self.key_value_store.get(command['key'])  # returns None if not exist
+                        self.print_msg(
+                            "%s act_as_leader, applied GET command: %s" % (self.id, command), True)
+                        # if the key doesn't exist, return empty string, in project spec
+                        if value is None:
+                            value = ''
+                        # response to client
+                        response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
+                                            'type': 'ok', 'MID': msg['MID'], 'value': value}
+                        sock.send(json.dumps(response_to_client))
+                        self.print_msg("%s act_as_leader, responded GET with ok to client msg(%s), total GET %d" % (self.id, msg['MID'], len(self.getmsg)), True)
+                        # ask other servers to commit the entry
+                        # decide to construct new entry because i want the program to be stateless, should follow the msg sent between servers
+                        # entry = (msg['MID'], msg['command'], msg['term'])  # TODO could also get the entry from self.log[last_applied], make sure they are the same
+                        self.issue_append_entries_RPC(entry, self.other_server_ids)
+                        self.print_msg("%s act_as_leader, ask servers to commit GET command %s" % (self.id, str(command)), True)
+                    else: # cmd is PUT
+                        # put the key and value into the map
+                        self.key_value_store[command['key']] = command['value']
+                        self.print_msg(
+                            "%s act_as_leader, applied PUT command: %s" % (self.id, command), True)
+                        response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
+                                              'type': 'ok', 'MID': msg['MID']}
+                        sock.send(json.dumps(response_to_client))
+                        self.print_msg(
+                            "%s act_as_leader, responded PUT request with ok to client msg(%s), total PUT %d" % (
+                                self.id, msg['MID'], len(self.putmsg)), True)
+                        # ask other servers to commit the entry
+                        self.print_msg("%s act_as_Leader, log %s" % (self.id, self.log), True)
+                        self.print_msg("%s act_as_Leader, last_applied %d, last_commited %d" % (self.id, self.last_applied_entry_idx, self.highest_committed_entry_idx), True)
+                        self.print_msg("%s act_as_leader, ask servers to commit entry %s" % (self.id, str(entry)), True)
+                        self.print_msg("%s act_as_leader, ask servers to commit entry from log %s" % (self.id, str(self.log[self.last_applied_entry_idx])), True)
+                        # entry = (msg['MID'], msg['command'], msg['term'])  # TODO could also get the entry from self.log[last_applied], make sure they are the same
+                        self.issue_append_entries_RPC(entry, self.other_server_ids)
+                        self.print_msg("%s act_as_leader, ask servers to commit PUT command %s" % (self.id, str(command)), True)
 
 
 
