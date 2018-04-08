@@ -1,7 +1,10 @@
+#!/usr/bin/env python
+
 import time
 import uuid
 import sys, socket, select, json
 import random
+import threading
 
 #Server ID number
 my_id = sys.argv[1]
@@ -25,11 +28,14 @@ class StateMachine:
 
     def __init__(self, id, other_server_ids):
         self.id = id
+        self.other_server_ids = other_server_ids
         self.leader_id = 'FFFF'
         #leader, candidate, follower
         self.state = 'follower'
         #latest term server has seen
         self.current_term = 0
+        #total votes
+        self.votes_count = 0
         #candidate id that received vote in current term
         self.voted_for = None
         #log entries; each entry contains mid, command for state machine, and term
@@ -37,17 +43,20 @@ class StateMachine:
         #to index by 1
         self.log.append((None, None, self.current_term))
         #index of highest log entry known to be committed
-        commit_index = 0
+        self.commit_index = 0
         #index of highest log entry applied to state machine
-        last_applied = 0
+        self.last_applied = 0
         #for each server, index of the next log entry to send to that server
-        next_index = self.init_next_idx_to_send()
+        self.next_index = self.init_next_idx_to_send()
         #for each server, index of highest log entry known to be replicated
-        match_index = self.init_match_idxs()
+        self.match_index = self.init_match_idxs()
         #last time state machine has received an RPC from replica
         self.last_RPC_time = time.time() * TIME_SCALE
         #get random timeout between values
         self.election_timeout = random.uniform(RAND_MIN, RAND_MAX)
+        self.start_election_time = 0
+        self.key_value_store = {}
+        self.queued_client_requests = []
 
     def run(self):
         while True:
@@ -95,20 +104,27 @@ class StateMachine:
     '''
     def check_terms(self, T, leader):
         if T > self.current_term:
-            become_follower(T, leader)
+            self.become_follower(T, leader)
             return True
         return False
 
     def client_handler(self, msg):
         global sock
 
-        if self.leader_id = 'FFFF':
-            response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'fail',
-            'MID': msg['MID']}
+        if self.leader_id == 'FFFF':
+            self.queued_client_requests.append(msg)
+            #response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'fail',
+            #'MID': msg['MID']}
         else:
             response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
                                   'type': 'redirect', 'MID': msg['MID']}
-        sock.send(json.dumps(response_to_client))
+            sock.send(json.dumps(response_to_client))
+            for m in list(self.queued_client_requests):
+                response_prev_requests_to_client = {'src': self.id, "dst": m['src'], 'leader': self.leader_id,
+                                                    'type': 'redirect', 'MID': m['MID']}
+                sock.send(json.dumps(response_prev_requests_to_client))
+                self.queued_client_requests.remove(m)
+
 
     def apply_commands(self):
         if self.commit_index > self.last_applied:
@@ -133,7 +149,6 @@ class StateMachine:
         self.voted_for = None
         self.votes_count = 0
         self.leader_id = new_leader
-        self.send_regular_heartbeat()
 
 
     '''
@@ -144,6 +159,16 @@ class StateMachine:
         self.voted_for = None
         self.votes_count = 0
         self.start_election()
+
+    def become_leader(self):
+        self.state = 'leader'
+        self.next_index = self.init_next_idx_to_send()
+        self.match_index = self.init_match_idxs()
+        self.leader_id = self.id
+        self.voted_for = None
+        self.votes_count = 0
+        entries = []
+        self.send_regular_heartbeat(entries)
 
     '''
     starts election. Candidate increments term, votes for itself
@@ -159,7 +184,7 @@ class StateMachine:
         self.leader_id = 'FFFF'
         #reset election timer
         self.election_timeout = random.uniform(RAND_MIN, RAND_MAX)
-        start_election_time = time.time() * TIME_SCALE
+        self.start_election_time = time.time() * TIME_SCALE
         #send out request vote RPCs
         self.send_vote_requests()
         #process the results
@@ -181,13 +206,13 @@ class StateMachine:
         global sock
 
         vote_response = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id,
-        'type': 'vote_response', 'MID': str(uuid.UUID), 'term': term
+        'type': 'vote_response', 'MID': str(uuid.UUID), 'term': term,
         'vote_granted': vote_granted}
         sock.send(json.dumps(vote_response))
 
     def append_handler(self, msg):
         response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'term': self.current_term,
-                    'type': 'append_entry_response', 'MID': msg['MID'], 'prev_log_idx': msg['prev_log_idx'],
+                    'type': 'append_response', 'MID': msg['MID'], 'prev_log_index': msg['prev_log_index'],
                     'prev_log_term': msg['prev_log_term'], 'entries': msg['entries'], 'accept_request': False}
 
         if len(msg['entries']) == 0:
@@ -199,7 +224,7 @@ class StateMachine:
                 sock.send(json.dumps(response))
                 return
             try:
-                (prev_mid, prec_command, prev_term) = self.log[msg['prev_log_index']]
+                (prev_mid, prev_command, prev_term) = self.log[msg['prev_log_index']]
                 if prev_term != msg['prev_log_term']:
                     sock.send(json.dumps(response))
                     return
@@ -209,7 +234,7 @@ class StateMachine:
 
 
 
-            entry = msg['entries'][0]
+            #entry = msg['entries'][0]
 
 
 
@@ -223,7 +248,7 @@ class StateMachine:
             self.become_candidate()
             return
 
-        self.apply_commands()
+        #self.apply_commands()
 
         raw_msg = sock.recv(SOCK_RECV_SIZE)
         if raw_msg:
@@ -237,26 +262,26 @@ class StateMachine:
             self.last_RPC_time = time.time() * TIME_SCALE
 
             #TODO SIGHHHHHHHHHH
-            if check_terms(msg['term'], msg['leader']):
+            if self.check_terms(msg['term'], msg['leader']):
                 self.voted_for = msg['src']
-                send_vote_response(msg, msg['term'], True)
+                self.send_vote_response(msg, msg['term'], True)
                 return
 
             if msg['type'] == 'append_request':
                 self.append_handler(msg)
             elif msg['type'] == 'vote_request':
                 if msg['term'] < self.current_term:
-                    send_vote_response(msg, self.current_term, False)
+                    self.send_vote_response(msg, self.current_term, False)
                 elif self.voted_for is None or self.voted_for == msg['src']:
                     last_log_index = len(self.log) - 1
-                    (mid, command, last_log_term) = self.log(last_log_index)
+                    (mid, command, last_log_term) = self.log[last_log_index]
                     if last_log_index <= msg['last_log_index'] and last_log_term <= msg['last_log_term']:
                         self.voted_for = msg['src']
-                        send_vote_response(msg, msg['term'], True)
+                        self.send_vote_response(msg, msg['term'], True)
                     else:
-                        send_vote_response(msg, self.current_term, False)
+                        self.send_vote_response(msg, self.current_term, False)
                 else:
-                    send_vote_response(msg, self.current_term, False)
+                    self.send_vote_response(msg, self.current_term, False)
 
 
     '''
@@ -265,14 +290,14 @@ class StateMachine:
     if tie, timeout and restart election
     if failed, become follower
     '''
-    def act_as_candidate(self, start_election_time):
+    def act_as_candidate(self):
         global sock, SOCK_RECV_SIZE
 
         N = len(self.other_server_ids)
         majority_votes = N / 2 + 1
 
         #if we've timed out
-        if time.time() * TIME_SCALE - start_election_time >= self.election_timeout:
+        if time.time() * TIME_SCALE - self.start_election_time >= self.election_timeout:
             #split vote scenario
             self.become_candidate()
         else:
@@ -285,15 +310,15 @@ class StateMachine:
             raw_msg = sock.recv(SOCK_RECV_SIZE)
             #received nothing
             if len(raw_msg) == 0:
-                break
+                return
             else:
-                msg = json.dumps(raw_msg)
+                msg = json.loads(raw_msg)
                 if msg['type'] in ['get', 'put']:
                     self.client_handler(msg)
                     return
                 #we know it's not a client message, this case covers 
                 #append requests/responses and vote requests/responses
-                elif check_terms(msg['term'], msg['leader']):
+                elif self.check_terms(msg['term'], msg['leader']):
                     return
                 elif msg['type'] == 'vote_response':
                     if msg['vote_granted']:
@@ -304,7 +329,7 @@ class StateMachine:
                             return
                 #don't vote because we're a candidate
                 elif msg['type'] == 'vote_request':
-                    send_vote_response(msg, self.current_term, False)
+                    self.send_vote_response(msg, self.current_term, False)
     
     '''
     Appends new command to its log as a new entry
@@ -320,12 +345,11 @@ class StateMachine:
     def act_as_leader(self):
         global sock, SOCK_RECV_SIZE
 
-        self.apply_commmands()
+        #self.apply_commands()
 
         raw_msg = sock.recv(SOCK_RECV_SIZE)
         if raw_msg:
             msg = json.loads(raw_msg)
-            entries = []
 
             if msg['type'] == 'get':
                 key = msg['key']
@@ -363,7 +387,7 @@ class StateMachine:
         (prev_mid, prev_command, prev_log_term) = self.log[prev_log_index]
         for server_id in self.other_server_ids:
             append_entry_RPC = {'src': self.id, 'dst': server_id, 'leader': self.id,
-            'type': 'append_request', 'MID': str(uuid.UUID), 'term': self.current_term
+            'type': 'append_request', 'MID': str(uuid.UUID), 'term': self.current_term,
             'entries': entries, 'leader_commit': self.commit_index, 
             'prev_log_index': prev_log_index, 'prev_log_term': prev_log_term}
             sock.send(json.dumps(append_entry_RPC))
@@ -372,9 +396,8 @@ class StateMachine:
             
     def send_regular_heartbeat(self, entries):
         global HEARTBEAT_INTERVAL
-        entries = []
-        send_append_request(entries)
-        threading.Timer(HEARTBEAT_INTERVAL_IN_SEC, self.send_regular_heartbeat).start()
+        self.send_append_request(entries)
+        threading.Timer(HEARTBEAT_INTERVAL, self.send_regular_heartbeat, [entries]).start()
 
 
 def main():
