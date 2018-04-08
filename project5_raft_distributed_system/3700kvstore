@@ -546,6 +546,7 @@ last one in its log (11 in Figure 7).
                 command = json.dumps({'cmd': 'get', 'key': key})
                 # apply the command to log
                 entry = self.append_new_log_entry(command, msg['MID'])
+                self.print_msg("%s act_as_leader, issuing aprpc for command %s to all servers" % (self.id, str(command)), True)
                 self.issue_append_entries_RPC(entry, self.other_server_ids)
                 # update the dictionary of (command, servers_appended_for_cur_cmd) for this command
                 # servers_appended_for_cur_cmd is a set()
@@ -562,6 +563,7 @@ last one in its log (11 in Figure 7).
                 command = json.dumps({'cmd': 'put', 'key': msg['key'], 'value': msg['value']})
                 entry = self.append_new_log_entry(command, msg['MID'])
                 # requests the followers to append this command to their logs
+                self.print_msg("%s act_as_leader, issuing aprpc for command %s to all servers" % (self.id, str(command)), True)
                 self.issue_append_entries_RPC(entry, self.other_server_ids)
                 # update the dictionary of (command, servers_appended) for this command
                 # add myself as a server_appended
@@ -654,7 +656,7 @@ last one in its log (11 in Figure 7).
                                 'entries': entries, 'leader_commit': self.highest_committed_entry_idx,
                                 'command': command}
             sock.send(json.dumps(append_entry_RPC))
-        self.print_msg("in issue_append_entries_RPC, send all other servers appenEntryRPC, i(%s)" % str(self.id), True)
+        self.print_msg("%s in issue_append_entries_RPC, send all other servers appenEntryRPC" % self.id, True)
 
 
     """
