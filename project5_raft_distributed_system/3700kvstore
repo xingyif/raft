@@ -471,21 +471,21 @@ last one in its log (11 in Figure 7).
             prev_log_idx = msg['prev_log_idx']
             (prev_mid, prev_command, prev_term) = self.log[prev_log_idx]
             self.print_msg("%s handle_AppendEntriesRPC_request, about to append entry, prev_term %d, term %d" % (self.id, prev_term, term), True)
-            if prev_term == term: # TODO redundent, never outside if, if I got here
-                # delete all following entries after the current one
-                self.log = self.log[:prev_log_idx+1]
-                # append any new entries not already in the log
-                self.log.extend(entries)
-                # if leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
-                if msg['leader_commit'] > self.highest_committed_entry_idx:
-                    self.highest_committed_entry_idx = min(msg['leader_commit'], len(self.log) - 1)
+            # delete all following entries after the current one
+            self.log = self.log[:prev_log_idx+1]
+            # append any new entries not already in the log
+            self.log.extend(entries)
+            # if leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
+            if msg['leader_commit'] > self.highest_committed_entry_idx:
+                self.highest_committed_entry_idx = min(msg['leader_commit'], len(self.log) - 1)
 
-                # reply success after successfully following this step and the subsequent ones
-                response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'term': self.current_term,
-                            'type': 'append_entry_response', 'MID': msg['MID'], 'prev_log_idx': msg['prev_log_idx'],
-                            'prev_log_term': msg['prev_log_term'], 'entries': msg['entries'], 'accept_request': True}
-                sock.send(json.dumps(response))
-                self.print_msg("%s handle_AppendEntriesRPC_request, ACCEPTED appended new entry from (%s)" % (str(self.id), str(msg['src'])), True)
+            # reply success after successfully following this step and the subsequent ones
+            response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'term': self.current_term,
+                        'type': 'append_entry_response', 'MID': msg['MID'], 'prev_log_idx': msg['prev_log_idx'],
+                        'prev_log_term': msg['prev_log_term'], 'entries': msg['entries'], 'accept_request': True}
+            sock.send(json.dumps(response))
+            self.print_msg("%s handle_AppendEntriesRPC_request, ACCEPTED appended new entry from (%s)"
+                           % (str(self.id), str(msg['src'])), True)
 
 
 
