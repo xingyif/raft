@@ -142,7 +142,6 @@ last one in its log (11 in Figure 7).
     def act_as_follower(self):
         global sock, SOCK_RECV_SIZE
 
-        self.print_msg("%s acting as a follower!" % self.id)
         # if election timeout
         # when timed out
         self.print_msg("DIFFERENCE %d and election %d" % (time.time() * TIME_SCALE - self.last_RPC_time, self.election_timeout))
@@ -165,7 +164,6 @@ last one in its log (11 in Figure 7).
                 self.key_value_store[command['key']] = command['value']
 
         raw_msg = sock.recv(SOCK_RECV_SIZE)
-        self.print_msg("%s act_as_follower, got raw_msg (%s)" % (self.id, str(raw_msg)))
         if raw_msg:
             msg = json.loads(raw_msg)
 
@@ -178,7 +176,6 @@ last one in its log (11 in Figure 7).
             self.election_timeout = randint(RAND_MIN, RAND_MAX)
             self.last_RPC_time = time.time() * TIME_SCALE
             self.print_msg("RPC RESET")
-            #time.sleep(5)
             # receiving heart beat, reset RPC
             if msg['type'] == 'heartbeat':
                 self.print_msg("%s act_as_follower, got heartbeat from (%s)" % (self.id, msg['src']))
@@ -236,6 +233,7 @@ last one in its log (11 in Figure 7).
                     return
 
             if msg['type'] == 'append_entry_request':
+                self.print_msg("%s act_as_follower, got append_entry_request from (%s)" % (self.id, msg['src']))
                 self.handle_AppendEntriesRPC_request(msg)
                 return
         else:
@@ -462,6 +460,8 @@ last one in its log (11 in Figure 7).
                     continue
             except IndexError:
                 sock.send(json.dumps(response))
+                self.print_msg("%s handle_AppendEntriesRPC_request, REFUSED TO appended new entry from (%s)" % (
+                    str(self.id), str(msg['src'])), True)
                 continue
 
             # step 3 & 4 & 5
@@ -483,7 +483,7 @@ last one in its log (11 in Figure 7).
                             'type': 'append_entry_response', 'MID': msg['MID'], 'prev_log_idx': msg['prev_log_idx'],
                             'prev_log_term': msg['prev_log_term'], 'entries': msg['entries'], 'accept_request': True}
                 sock.send(json.dumps(response))
-                self.print_msg("%s handle_AppendEntriesRPC_request, appended new entry from (%s)" % (str(self.id), str(msg['src'])), True)
+                self.print_msg("%s handle_AppendEntriesRPC_request, ACCEPTED appended new entry from (%s)" % (str(self.id), str(msg['src'])), True)
 
 
 
