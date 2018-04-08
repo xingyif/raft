@@ -68,7 +68,7 @@ class StateMachine:
                 self.act_as_leader()
 
     def print_msg(self, msg, bool=False):
-        bool = False
+        #bool = False
         if bool:
             print(msg)
         return
@@ -127,7 +127,7 @@ class StateMachine:
 
 
     def apply_commands(self):
-        if self.commit_index > self.last_applied:
+        while self.commit_index > self.last_applied:
             self.last_applied += 1
             (mid, command, term) = self.log[self.last_applied]
             command = json.loads(command)
@@ -159,6 +159,7 @@ class StateMachine:
         self.voted_for = None
         self.votes_count = 0
         self.start_election()
+        self.print_msg("i %s HAVE BECOME CANDIDATE" % self.id, True)
 
     def become_leader(self):
         self.state = 'leader'
@@ -169,6 +170,7 @@ class StateMachine:
         self.votes_count = 0
         entries = []
         self.send_regular_heartbeat(entries)
+        self.print_msg("i %s HAVE BECOME LEADER" % self.id, True)
 
     '''
     starts election. Candidate increments term, votes for itself
@@ -244,9 +246,10 @@ class StateMachine:
         #have we timed out
         if time.time() * TIME_SCALE - self.last_RPC_time >= self.election_timeout:
             #TODO We'll talk about this
-            #if self.voted_for is None:
-            self.become_candidate()
-            return
+            if self.voted_for is None:
+                self.print_msg("i %s become candidate 1" % self.id, True)
+                self.become_candidate()
+                return
 
         #self.apply_commands()
 
@@ -259,13 +262,16 @@ class StateMachine:
                 return
 
             self.election_timeout = random.uniform(RAND_MIN, RAND_MAX)
-            self.last_RPC_time = time.time() * TIME_SCALE
+            if msg['src'] == self.leader_id:
+                self.last_RPC_time = time.time() * TIME_SCALE
 
             #TODO SIGHHHHHHHHHH
-            if self.check_terms(msg['term'], msg['leader']):
+            if msg['type'] == 'request_vote' and self.check_terms(msg['term'], msg['leader']):
                 self.voted_for = msg['src']
+                self.print_msg("i %s vote for %s 1" % (self.id, msg['src']), True)
                 self.send_vote_response(msg, msg['term'], True)
                 return
+
 
             if msg['type'] == 'append_request':
                 self.append_handler(msg)
@@ -277,6 +283,7 @@ class StateMachine:
                     (mid, command, last_log_term) = self.log[last_log_index]
                     if last_log_index <= msg['last_log_index'] and last_log_term <= msg['last_log_term']:
                         self.voted_for = msg['src']
+                        self.print_msg("i %s vote for %s 2" % (self.id, msg['src']), True)
                         self.send_vote_response(msg, msg['term'], True)
                     else:
                         self.send_vote_response(msg, self.current_term, False)
@@ -378,9 +385,12 @@ class StateMachine:
                 entries.append(entry)
                 self.send_append_request(entry)
                 '''
-
+            '''
             else:
-                self.check_terms(msg['term'], msg['leader'])
+                if self.check_terms(msg['term'], msg['leader']):
+                    self.print_msg(msg, True)
+                    self.print_msg("i %s HAVE BECOME FOLLOWER" % self.id, True)
+            '''
 
     def send_append_request(self, entries):
         prev_log_index = self.commit_index
