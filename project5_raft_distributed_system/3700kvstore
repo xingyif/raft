@@ -440,6 +440,7 @@ last one in its log (11 in Figure 7).
                     'prev_log_term': msg['prev_log_term'], 'entries': msg['entries'], 'command': msg['command'], 'accept_request': False}
         # tuple for getting entry values
         entries = msg['entries']
+
         for (mid, command, term) in entries:
             # term < currentTerm, then return False, leader will update itself and become a follower
             if term < self.current_term:
@@ -469,6 +470,7 @@ last one in its log (11 in Figure 7).
             #  delete the existing entry and all that follow it (5.3)
             prev_log_idx = msg['prev_log_idx']
             (prev_mid, prev_command, prev_term) = self.log[prev_log_idx]
+            self.print_msg("%s handle_AppendEntriesRPC_request, about to append entry, prev_term %d, term %d" % (self.id, prev_term, term), True)
             if prev_term == term: # TODO redundent, never outside if, if I got here
                 # delete all following entries after the current one
                 self.log = self.log[:prev_log_idx+1]
