@@ -76,6 +76,13 @@ class StateMachine:
         self.highest_entries_replicated = self.init_highest_entries_replicated()
         self.key_value_store = dict()
         self.queued_client_requests = []
+
+        # for leaders to handle RPC response
+        # command, servers_appended
+        self.servers_appended = {}
+        # command, servers_to_resend
+        self.servers_to_resend = {}
+
         # for debugging purposes
         self.getmsg = set()
         self.putmsg = set()
@@ -203,7 +210,7 @@ last one in its log (11 in Figure 7).
                     last_log_index = len(self.log) - 1
                     (mid, command, last_log_term) = self.log[last_log_index]
                     self.print_msg("my %s voted_for is %s" % (self.id, self.voted_for))
-                    if last_log_index <= msg['last_log_idx'] or last_log_term <= msg['last_log_term']:
+                    if last_log_index <= msg['last_log_idx'] and last_log_term <= msg['last_log_term']:
                         self.voted_for = msg['src']
                         # TODO who should be the leader
                         response_to_vote = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id, 'type': 'response_vote',
@@ -432,7 +439,7 @@ last one in its log (11 in Figure 7).
     def handle_AppendEntriesRPC_request(self, msg):
         response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'term': self.current_term,
                     'type': 'append_entry_response', 'MID': msg['MID'], 'prev_log_idx': msg['prev_log_idx'],
-                    'prev_log_term': msg['prev_log_term'], 'entries': msg['entries'], 'accept_request': False}
+                    'prev_log_term': msg['prev_log_term'], 'entries': msg['entries'], 'command': msg['command'], 'accept_request': False}
         # tuple for getting entry values
         entries = msg['entries']
         for (mid, command, term) in entries:
@@ -496,18 +503,20 @@ last one in its log (11 in Figure 7).
     def act_as_leader(self):
         global sock, SOCK_RECV_SIZE
 
-
+        N = len(self.other_server_ids) + 1
+        majority = N / 2 + 1
         # TODO resend appendEntriesRPC after a certain timeout interval, if followers do not reply
 
         '''
         Log Replication:
 
 	    1.  Leader receives client command
-	    2.  Leader applies the command to its log as a new entry
+	    2.  Leader appends the command to its log as a new entry
+	    
 	    2.1 issues AppendEntries RPCs in parallel to each of the other servers
 
         3.  Replicas send back acks for RPC
-        4.  if Leader receives N/2+1, update Leader last_commited_idx (commited)
+        4.  if Leader receives N/2+1, update Leader last_commited_idx (commited),
         4.1 send results back to the client
         5.  send commit RPC requests to the replicas
 
@@ -535,50 +544,15 @@ last one in its log (11 in Figure 7).
                 key = msg['key']
                 self.getmsg.add(msg['MID'])
                 command = json.dumps({'cmd': 'get', 'key': key})
+                # apply the command to log
                 entry = self.append_new_log_entry(command, msg['MID'])
                 self.issue_append_entries_RPC(entry, self.other_server_ids)
-                # handle RPC response from the followers, make sure they actually commited before moving on
-                #servers_to_resend = self.handle_appendEntriesRPC_acks()
-                N = len(self.other_server_ids) + 1
-                majority = N / 2 + 1
+                # update the dictionary of (command, servers_appended_for_cur_cmd) for this command
+                # servers_appended_for_cur_cmd is a set()
+                # add myself as a server_appended
+                self.servers_appended[command] = {self.id}
+                self.servers_to_resend[command] = set()
 
-
-                # apply the command
-                value = self.key_value_store.get(key) # returns None if not exist
-                self.last_applied_entry_idx += 1
-                # if the key doesn't exist, return empty string, in project spec
-                if value is None:
-                    value = ''
-                # response to client
-                response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
-                                        'type': 'ok', 'MID': msg['MID'], 'value': value}
-                sock.send(json.dumps(response_to_client))
-
-
-
-
-
-                # if got majority acks, then commit the command
-                '''
-                servers_to_resend = [0, 1, 2, 3, 4, 5]
-                if len(servers_to_resend) < majority:
-                    self.highest_committed_entry_idx += 1
-                    # apply the command
-                    value = self.key_value_store.get(key) # returns None if not exist
-                    self.last_applied_entry_idx += 1
-                    # if the key doesn't exist, return empty string, in project spec
-                    if value is None:
-                        value = ''
-                    # response to client
-                    response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
-                                        'type': 'ok', 'MID': msg['MID'], 'value': value}
-                    sock.send(json.dumps(response_to_client))
-                    # ask other servers to commit the entry
-                    self.issue_append_entries_RPC(entry, self.other_server_ids)
-                    self.print_msg("%s act_as_leader, responded GET with ok to client msg(%s), total GET %d" % (self.id, msg['MID'], len(self.getmsg)), True)
-                # indefinitely resend to the rest of the servers
-                #self.indefinitely_send_AppendEntryRPC(servers_to_resend, entry)
-                '''
 
             # handle put from client
             elif msg['type'] == 'put':
@@ -588,40 +562,54 @@ last one in its log (11 in Figure 7).
                 entry = self.append_new_log_entry(command, msg['MID'])
                 # requests the followers to append this command to their logs
                 self.issue_append_entries_RPC(entry, self.other_server_ids)
-                # handle RPC response from the followers, make sure they actually commited before moving on
-                #servers_to_resend = self.handle_appendEntriesRPC_acks()
-                N = len(self.other_server_ids) + 1
-                majority = N / 2 + 1
-                # if got majority acks, then commit the command
+                # update the dictionary of (command, servers_appended) for this command
+                # add myself as a server_appended
+                self.servers_appended[command] = {self.id}
+                self.servers_to_resend[command] = set()
 
-
-                # put the key and value into the map
-                self.key_value_store[msg['key']] = msg['value']
-                self.last_applied_entry_idx += 1
-                response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
-                                        'type': 'ok', 'MID': msg['MID']}
-                sock.send(json.dumps(response_to_client))
-
-
-
-
-
-                '''
-                servers_to_resend = [0, 1, 2, 3, 4, 5]
-                if len(servers_to_resend) < majority:
+            # handle RPC response from the followers, make sure they actually commited before moving on
+            elif msg['type'] == 'append_entry_response':
+                servers_appended_for_cur_cmd = self.servers_appended[msg['command']]
+                if len(servers_appended_for_cur_cmd) < majority:
+                    self.handle_appendEntriesRPC_ack(msg)
+                else:
+                    # got majority acks back, respond client
+                    command = json.loads(msg['command'])
                     self.highest_committed_entry_idx += 1
-                    # put the key and value into the map
-                    self.key_value_store[msg['key']] = msg['value']
-                    self.last_applied_entry_idx += 1
-                    response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
-                                        'type': 'ok', 'MID': msg['MID']}
-                    sock.send(json.dumps(response_to_client))
-                    # ask other servers to commit the entry
-                    self.issue_append_entries_RPC(entry, self.other_server_ids)
-                    self.print_msg("%s act_as_leader, responded PUT request with ok to client msg(%s), total PUT %d" % (self.id, msg['MID'], len(self.putmsg)), True)
+                    if self.highest_committed_entry_idx > self.last_applied_entry_idx:
+                        self.last_applied_entry_idx += 1
+                        # apply the command # TODO we could also get the cmd from log[last_applied], make sure they are the same
+                        if command['cmd'] == 'get':
+                            value = self.key_value_store.get(command['key'])  # returns None if not exist
+                            # if the key doesn't exist, return empty string, in project spec
+                            if value is None:
+                                value = ''
+                            # response to client
+                            response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
+                                                'type': 'ok', 'MID': msg['MID'], 'value': value}
+                            sock.send(json.dumps(response_to_client))
+                            # ask other servers to commit the entry
+                            # decide to construct new entry because i want the program to be stateless, should follow the msg sent between servers
+                            entry = (msg['MID'], msg['command'], msg['term'])  # TODO could also get the entry from self.log[last_applied], make sure they are the same
+                            self.issue_append_entries_RPC(entry, self.other_server_ids)
+                            self.print_msg("%s act_as_leader, responded GET with ok to client msg(%s), total GET %d" % (self.id, msg['MID'], len(self.getmsg)), True)
+                        else: # cmd is PUT
+                            # put the key and value into the map
+                            self.key_value_store[command['key']] = command['value']
+                            response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
+                                                  'type': 'ok', 'MID': msg['MID']}
+                            sock.send(json.dumps(response_to_client))
+                            # ask other servers to commit the entry
+                            entry = (msg['MID'], msg['command'], msg['term'])  # TODO could also get the entry from self.log[last_applied], make sure they are the same
+                            self.issue_append_entries_RPC(entry, self.other_server_ids)
+                            self.print_msg(
+                                "%s act_as_leader, responded PUT request with ok to client msg(%s), total PUT %d" % (
+                                self.id, msg['MID'], len(self.putmsg)), True)
+
+
                 # indefinitely resend to the rest of the servers
                 #self.indefinitely_send_AppendEntryRPC(servers_to_resend, entry)
-                '''
+
             else:
                 self.print_msg("WEIRD, %s got %s from %s" % (self.id, msg['type'], msg['src']), True)
 
@@ -660,28 +648,23 @@ last one in its log (11 in Figure 7).
     For leader: Handle ApplyEntriesRPC response returned from followers
     if Leader receives N/2+1, update Leader last_commited_idx (commited)
     """
-    def handle_appendEntriesRPC_acks(self):
-        global sock, SOCK_RECV_SIZE
-        N = len(self.other_server_ids) + 1
-        majority = N / 2 + 1
+    def handle_appendEntriesRPC_ack(self, msg):
+        # # TODO set a timeout for getting acks, to resend
+        # # TODO instead of sending regular heartbeats, send appendEntriesRPC, because each server can handle dups
 
-        servers_appended = set()
-        servers_appended.add(self.id)
-        servers_to_resend = set()
+        # follower accepted the request
+        if msg['accept_request']:
+            # update the servers_appended list for this command
+            servers_appended_for_cur_cmd = self.servers_appended[msg['command']]
+            servers_appended_for_cur_cmd.add(msg['src'])
+            # update the servers_to_resend list for this command
+            servers_to_resend_for_cur_cmd = self.servers_to_resend[msg['command']]
+            if msg['src'] in servers_to_resend_for_cur_cmd:
+                servers_to_resend_for_cur_cmd.remove(msg['src'])
+            self.print_msg("in handle_AppendEntriesRPC_response, i am (%s), got (%s) to append entry to its log" % (str(self.id), str(msg['src'])))
 
-        # TODO set a timeout for getting acks, to resend
-        # TODO instead of sending regular heartbeats, send appendEntriesRPC, because each server can handle dups
-
-        while len(servers_appended) < majority:
-            raw_msg = sock.recv(SOCK_RECV_SIZE)
-            if len(raw_msg) == 0: break
-            msg = json.loads(raw_msg)
-
-            if msg['type'] == 'get' or msg['type'] == 'put':
-                # TODO pass to handleMessages
-                self.respond_fail_or_redirect_to_leader(msg)
-                continue
-
+        # find our why the RPC is rejected
+        else:
             '''
             if msg['type'] not in ['get', 'put']:
                 if self.current_term < msg['term']:
@@ -689,24 +672,15 @@ last one in its log (11 in Figure 7).
                     self.become_follower(msg['term'], msg['leader'])
                     return
             '''
-
-            if msg['type'] == 'append_entry_response':
-                # follower accepted the request
-                if msg['accept_request']:
-                    servers_appended.add(msg['src'])
-                    self.print_msg("handle_AppendEntriesRPC_response, i am (%s), got (%s) to append entry to its log" % (str(self.id), str(msg['src'])))
-
-                # find our why the RPC is rejected
-                else:
-                    # go back one entry, and send it along
-                    servers_to_resend.add(msg['src'])
-                    prev_log_idx = msg['prev_log_idx'] - 1
-                    prev_log_term = msg['prev_log_term'] - 1
-                    mid = msg['MID']
-                    self.resend_AppendEntryRPC_request(servers_to_resend, prev_log_idx, prev_log_term, msg['entries'], mid)
-                    self.print_msg("handle_AppendEntriesRPC_response, i am (%s), got (%s) rejected my append entry request" % (str(self.id), str(msg['src'])))
-                    self.print_msg(("RESPONSE IS: %s" % msg))
-        return servers_to_resend
+            # update the servers_to_resend list for this command
+            servers_to_resend_for_cur_cmd = self.servers_to_resend[msg['command']]
+            servers_to_resend_for_cur_cmd.add(msg['src'])
+            # go back one entry, and send it along
+            prev_log_idx = msg['prev_log_idx'] - 1
+            prev_log_term = msg['prev_log_term'] - 1
+            mid = msg['MID']
+            self.resend_AppendEntryRPC_request(msg['src'], prev_log_idx, prev_log_term, msg['entries'], mid)
+            self.print_msg("in handle_AppendEntriesRPC_response, i am (%s), got (%s) rejected my append entry request, response(%s)" % (str(self.id), str(msg['src']), msg))
 
 
          # find all servers that did not accept the RPC
@@ -720,25 +694,25 @@ last one in its log (11 in Figure 7).
     """
     Resend AppendEntryRPC request to a particular server
     """
-    def resend_AppendEntryRPC_request(self, servers_to_resend, prev_log_idx, prev_log_term, entries, mid):
+    def resend_AppendEntryRPC_request(self, server_to_resend, prev_log_idx, prev_log_term, entries, mid):
         # TODO make this have intervals, and keep resending
-        #while len(servers_to_resend) > 0:
-        for server_id in servers_to_resend:
-            append_entry_RPC = {'src': self.id, 'dst': server_id, 'leader': self.id,
-                                'type': 'append_entry_request',
-                                'MID': mid, 'term': self.current_term,
-                                'prev_log_idx': prev_log_idx,
-                                'prev_log_term': prev_log_term,
-                                'entries': entries, 'leader_commit': self.highest_committed_entry_idx}
-            sock.send(json.dumps(append_entry_RPC))
+        append_entry_RPC = {'src': self.id, 'dst': server_to_resend, 'leader': self.id,
+                            'type': 'append_entry_request',
+                            'MID': mid, 'term': self.current_term,
+                            'prev_log_idx': prev_log_idx,
+                            'prev_log_term': prev_log_term,
+                            'entries': entries, 'leader_commit': self.highest_committed_entry_idx}
+        sock.send(json.dumps(append_entry_RPC))
 
     '''
     Indefinitely send AppendEntryRPC to the servers that needs to append the entry, until they send back an ack
     '''
-    def indefinitely_send_AppendEntryRPC(self, servers_to_resend, entry):
+    def indefinitely_send_AppendEntryRPC(self, command, entry):
         global HEARTBEAT_INTERVAL_IN_SEC, sock
 
-        leftover_servers = servers_to_resend
+        # TODO rethink this, have one thread constantly managing the entire dict
+        '''
+        leftover_servers = self.servers_to_resend[command]
         t = threading.Timer(HEARTBEAT_INTERVAL_IN_SEC, self.indefinitely_send_AppendEntryRPC, [leftover_servers, entry])
         if len(leftover_servers) == 0:
             t.cancel()
@@ -756,6 +730,7 @@ last one in its log (11 in Figure 7).
                     leftover_servers.remove(msg['src'])
 
         t.start()
+        '''
 
 
 """
