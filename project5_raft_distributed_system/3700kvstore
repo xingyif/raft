@@ -440,55 +440,55 @@ last one in its log (11 in Figure 7).
         # tuple for getting entry values
         entries = msg['entries']
 
-        for (mid, command, term) in entries:
-            # term < currentTerm, then return False, leader will update itself and become a follower
-            if term < self.current_term:
-                sock.send(json.dumps(response))
-                self.print_msg("%s handle_AppendEntriesRPC_request, REFUSED TO appended new entry from (%s), because term in entry %d < myterm %d" % (
-                str(self.id), str(msg['src']), term, self.current_term), True)
-                continue
-
-            # Follower replies false if log doesn't contain an entry at prevLogIndex
-            # whose term matches prevLogTerm (5.3)
-            # entry at prevLogIndex doesn't have term that matches prev_log_term
-            try:
-                (mid_prev, prev_command, prev_term) = self.log[msg['prev_log_idx']]
-                if prev_term != msg['prev_log_term']:
-                    sock.send(json.dumps(response))
-                    self.print_msg("%s handle_AppendEntriesRPC_request, REFUSED TO appended new entry from (%s), my prev_term(%d) at idx(%d) != msg[prev_term] %d" % (
-                    str(self.id), str(msg['src']), prev_term, msg['prev_log_idx'], msg['prev_log_term']), True)
-                    continue
-            except IndexError:
-                sock.send(json.dumps(response))
-                self.print_msg("%s handle_AppendEntriesRPC_request, REFUSED TO appended new entry from (%s), i don't have idx(%d) in my log" % (
-                    str(self.id), str(msg['src']), msg['prev_log_idx']), True)
-                self.print_msg("%s handle_AppendEntriesRPC_request, my log looks like: %s" % (self.id, self.log), True)
-                continue
-
-            # step 3 & 4 & 5
-            # If an existing entry conflicts with a new one (same index but different terms),
-            #  delete the existing entry and all that follow it (5.3)
-            prev_log_idx = msg['prev_log_idx']
-            (prev_mid, prev_command, prev_term) = self.log[prev_log_idx]
-            self.print_msg("%s handle_AppendEntriesRPC_request, about to append entry, prev_term %d, term %d" % (self.id, prev_term, term), True)
-            # delete all following entries after the current one
-            if prev_term != msg['prev_log_term']:
-                self.log = self.log[:prev_log_idx+1]
-            # append any new entries not already in the log
-            if (mid, command, term) not in self.log:
-                self.log.append((mid, command, term))
-            # if leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
-            if msg['leader_commit'] > self.highest_committed_entry_idx:
-                self.highest_committed_entry_idx = min(msg['leader_commit'], len(self.log) - 1)
-
-            # reply success after successfully following this step and the subsequent ones
-            response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'term': self.current_term,
-                        'type': 'append_entry_response', 'MID': msg['MID'], 'prev_log_idx': msg['prev_log_idx'],
-                        'prev_log_term': msg['prev_log_term'], 'entries': msg['entries'],
-                        'command': msg['command'], 'accept_request': True}
+        # term < currentTerm, then return False, leader will update itself and become a follower
+        if self.current_term > msg['term']:
             sock.send(json.dumps(response))
-            self.print_msg("%s handle_AppendEntriesRPC_request, ACCEPTED appended new entry from (%s)"
-                           % (str(self.id), str(msg['src'])), True)
+            self.print_msg("%s handle_AppendEntriesRPC_request, REFUSED TO appended new entry from (%s), because term in entry %d < myterm %d" % (
+            str(self.id), str(msg['src']), msg['term'], self.current_term), True)
+            return
+
+        # Follower replies false if log doesn't contain an entry at prevLogIndex
+        # whose term matches prevLogTerm (5.3)
+        # entry at prevLogIndex doesn't have term that matches prev_log_term
+        try:
+            (mid_prev, prev_command, prev_term) = self.log[msg['prev_log_idx']]
+            if prev_term != msg['prev_log_term']:
+                sock.send(json.dumps(response))
+                self.print_msg("%s handle_AppendEntriesRPC_request, REFUSED TO appended new entry from (%s), my prev_term(%d) at idx(%d) != msg[prev_term] %d" % (
+                str(self.id), str(msg['src']), prev_term, msg['prev_log_idx'], msg['prev_log_term']), True)
+                return
+        except IndexError:
+            sock.send(json.dumps(response))
+            self.print_msg("%s handle_AppendEntriesRPC_request, REFUSED TO appended new entry from (%s), i don't have idx(%d) in my log" % (
+                str(self.id), str(msg['src']), msg['prev_log_idx']), True)
+            self.print_msg("%s handle_AppendEntriesRPC_request, my log looks like: %s" % (self.id, self.log), True)
+            return
+
+        # step 3 & 4 & 5
+        # If an existing entry conflicts with a new one (same index but different terms),
+        #  delete the existing entry and all that follow it (5.3)
+        prev_log_idx = msg['prev_log_idx']
+        (prev_mid, prev_command, prev_term) = self.log[prev_log_idx]
+        self.print_msg("%s handle_AppendEntriesRPC_request, about to append entry, prev_term %d, term %d" % (self.id, prev_term, term), True)
+        # delete all following entries after the current one
+        if prev_term != msg['prev_log_term']:
+            self.log = self.log[:prev_log_idx+1]
+        # append any new entries not already in the log
+        entry = msg['entries'][0]
+        if entry not in self.log:
+            self.log.extend(msg['entries'])
+        # if leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
+        if msg['leader_commit'] > self.highest_committed_entry_idx:
+            self.highest_committed_entry_idx = min(msg['leader_commit'], len(self.log) - 1)
+
+        # reply success after successfully following this step and the subsequent ones
+        response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'term': self.current_term,
+                    'type': 'append_entry_response', 'MID': msg['MID'], 'prev_log_idx': msg['prev_log_idx'],
+                    'prev_log_term': msg['prev_log_term'], 'entries': msg['entries'],
+                    'command': msg['command'], 'accept_request': True}
+        sock.send(json.dumps(response))
+        self.print_msg("%s handle_AppendEntriesRPC_request, ACCEPTED appended new entry from (%s)"
+                       % (str(self.id), str(msg['src'])), True)
 
 
 
