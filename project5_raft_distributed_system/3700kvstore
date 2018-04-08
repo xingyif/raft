@@ -82,9 +82,11 @@ class StateMachine:
 
 
     def run(self):
+        self.print_msg("start running ...", True)
+        # time.sleep(1)
         while True:
             if self.state == 'follower':
-                self.print_msg("%s about to act as follower" % self.id, True)
+                self.print_msg("%s about to act as follower" % self.id)
                 self.act_as_follower()
            # elif self.state == 'candidate':
            #     self.act_as_candidate()
@@ -94,7 +96,7 @@ class StateMachine:
 
 
     def print_msg(self, msg, bool=False):
-        bool = False
+        #bool = False
         if bool:
             print(msg)
         return
@@ -134,7 +136,7 @@ last one in its log (11 in Figure 7).
     def act_as_follower(self):
         global sock, SOCK_RECV_SIZE
 
-        self.print_msg("%s acting as a follower!" % self.id, True)
+        self.print_msg("%s acting as a follower!" % self.id)
         # if election timeout
         # when timed out
         self.print_msg("DIFFERENCE %d and election %d" % (time.time() * TIME_SCALE - self.last_RPC_time, self.election_timeout))
@@ -406,7 +408,6 @@ last one in its log (11 in Figure 7).
 
 
     def become_leader(self):
-        self.print_msg("become_leader, id (%s)" % str(self.id))
         self.state = 'leader'
         self.next_idx_to_send = self.init_next_idx_to_send()
         self.highest_entries_replicated = self.init_highest_entries_replicated()
@@ -415,6 +416,7 @@ last one in its log (11 in Figure 7).
         self.votes_count = 0
         self.send_regular_heartbeat()
         self.print_msg("i %s HAVE BECOME LEADER" % self.id, True)
+        time.sleep(5)
 
 
     """
@@ -521,10 +523,12 @@ last one in its log (11 in Figure 7).
             # if they decide to be a candiadate and increment term, what should i do?
 
             # check the term, convert to follower if necessary in case of a partition
+            '''
             if msg['type'] not in ['get', 'put']:
                 if self.current_term < msg['term']:
                     self.become_follower(msg['term'], msg['leader'])
                     return
+            '''
 
             if msg['type'] == 'get':
                 self.print_msg("act_as_leader, i am (%s), got get request from client" % self.id)
@@ -534,12 +538,31 @@ last one in its log (11 in Figure 7).
                 self.getmsg.add(msg['MID'])
                 command = json.dumps({'cmd': 'get', 'key': key})
                 entry = self.append_new_log_entry(command, msg['MID'])
-                self.issue_append_entries_RPC(entry, self.other_server_ids)
+                #self.issue_append_entries_RPC(entry, self.other_server_ids)
                 # handle RPC response from the followers, make sure they actually commited before moving on
-                servers_to_resend = self.handle_appendEntriesRPC_acks()
+                #servers_to_resend = self.handle_appendEntriesRPC_acks()
                 N = len(self.other_server_ids) + 1
                 majority = N / 2 + 1
+
+
+                # apply the command
+                value = self.key_value_store.get(key) # returns None if not exist
+                self.last_applied_entry_idx += 1
+                # if the key doesn't exist, return empty string, in project spec
+                if value is None:
+                    value = ''
+                # response to client
+                response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
+                                        'type': 'ok', 'MID': msg['MID'], 'value': value}
+                sock.send(json.dumps(response_to_client))
+
+
+
+
+
                 # if got majority acks, then commit the command
+                '''
+                servers_to_resend = [0, 1, 2, 3, 4, 5]
                 if len(servers_to_resend) < majority:
                     self.highest_committed_entry_idx += 1
                     # apply the command
@@ -556,8 +579,8 @@ last one in its log (11 in Figure 7).
                     self.issue_append_entries_RPC(entry, self.other_server_ids)
                     self.print_msg("%s act_as_leader, responded GET with ok to client msg(%s), total GET %d" % (self.id, msg['MID'], len(self.getmsg)), True)
                 # indefinitely resend to the rest of the servers
-                self.indefinitely_send_AppendEntryRPC(servers_to_resend, entry)
-
+                #self.indefinitely_send_AppendEntryRPC(servers_to_resend, entry)
+                '''
 
             # handle put from client
             elif msg['type'] == 'put':
@@ -566,12 +589,27 @@ last one in its log (11 in Figure 7).
                 command = json.dumps({'cmd': 'put', 'key': msg['key'], 'value': msg['value']})
                 entry = self.append_new_log_entry(command, msg['MID'])
                 # requests the followers to append this command to their logs
-                self.issue_append_entries_RPC(entry, self.other_server_ids)
+                #self.issue_append_entries_RPC(entry, self.other_server_ids)
                 # handle RPC response from the followers, make sure they actually commited before moving on
-                servers_to_resend = self.handle_appendEntriesRPC_acks()
+                #servers_to_resend = self.handle_appendEntriesRPC_acks()
                 N = len(self.other_server_ids) + 1
                 majority = N / 2 + 1
                 # if got majority acks, then commit the command
+
+
+                # put the key and value into the map
+                self.key_value_store[msg['key']] = msg['value']
+                self.last_applied_entry_idx += 1
+                response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
+                                        'type': 'ok', 'MID': msg['MID']}
+                sock.send(json.dumps(response_to_client))
+
+
+
+
+
+                '''
+                servers_to_resend = [0, 1, 2, 3, 4, 5]
                 if len(servers_to_resend) < majority:
                     self.highest_committed_entry_idx += 1
                     # put the key and value into the map
@@ -584,8 +622,8 @@ last one in its log (11 in Figure 7).
                     self.issue_append_entries_RPC(entry, self.other_server_ids)
                     self.print_msg("%s act_as_leader, responded PUT request with ok to client msg(%s), total PUT %d" % (self.id, msg['MID'], len(self.putmsg)), True)
                 # indefinitely resend to the rest of the servers
-                self.indefinitely_send_AppendEntryRPC(servers_to_resend, entry)
-
+                #self.indefinitely_send_AppendEntryRPC(servers_to_resend, entry)
+                '''
             else:
                 self.print_msg("WEIRD, %s got %s from %s" % (self.id, msg['type'], msg['src']), True)
 
@@ -647,11 +685,13 @@ last one in its log (11 in Figure 7).
                 self.respond_fail_or_redirect_to_leader(msg)
                 continue
 
+            '''
             if msg['type'] not in ['get', 'put']:
                 if self.current_term < msg['term']:
                     # update term and become a follower
                     self.become_follower(msg['term'], msg['leader'])
                     return
+            '''
 
             if msg['type'] == 'append_entry_response':
                 # follower accepted the request
