@@ -571,8 +571,11 @@ last one in its log (11 in Figure 7).
 
             # handle RPC response from the followers, make sure they actually commited before moving on
             elif msg['type'] == 'append_entry_response':
+                self.print_msg("%s act_as_leader, received append_entry_response from %s" % (self.id, msg['src']), True)
                 servers_appended_for_cur_cmd = self.servers_appended[msg['command']]
                 if len(servers_appended_for_cur_cmd) < majority:
+                    self.print_msg("%s act_as_leader, didn't get majority RPC for command(%s), going to handle the current ack" % (self.id, str(msg['command'])),
+                                   True)
                     self.handle_appendEntriesRPC_ack(msg)
                 else:
                     # got majority acks back, respond client
