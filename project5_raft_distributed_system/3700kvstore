@@ -59,13 +59,24 @@ class StateMachine:
         self.queued_client_requests = []
 
     def run(self):
+        global sock, SOCK_RECV_SIZE
         while True:
-            if self.state == 'follower':
-                self.act_as_follower()
-            elif self.state == 'candidate':
-                self.act_as_candidate()
-            elif self.state == 'leader':
-                self.act_as_leader()
+            raw_msg = sock.recv(SOCK_RECV_SIZE)
+            # received nothing
+            if len(raw_msg) == 0:
+                return
+            else:
+                msg = json.loads(raw_msg)
+                if msg['type'] not in ['get', 'put']:
+                    self.check_terms(msg['term'], msg['leader'])
+                if self.state == 'follower':
+                    if msg['src'] == self.leader_id:
+                        self.last_RPC_time = time.time() * TIME_SCALE
+                    self.act_as_follower(msg)
+                elif self.state == 'candidate':
+                    self.act_as_candidate(msg)
+                elif self.state == 'leader':
+                    self.act_as_leader(msg)
 
     def print_msg(self, msg, bool=False):
         #bool = False
@@ -105,8 +116,6 @@ class StateMachine:
     def check_terms(self, T, leader):
         if T > self.current_term:
             self.become_follower(T, leader)
-            return True
-        return False
 
     def client_handler(self, msg):
         global sock
@@ -149,6 +158,8 @@ class StateMachine:
         self.voted_for = None
         self.votes_count = 0
         self.leader_id = new_leader
+        if self.leader_id == self.id:
+            print_msg("THIS SHOULDN'T HAPPEN ABORT ABORT", True)
 
 
     '''
@@ -240,8 +251,7 @@ class StateMachine:
 
 
 
-    def act_as_follower(self):
-        global sock, SOCK_RECV_SIZE
+    def act_as_follower(self, msg):
 
         #have we timed out
         if time.time() * TIME_SCALE - self.last_RPC_time >= self.election_timeout:
@@ -251,44 +261,28 @@ class StateMachine:
                 self.become_candidate()
                 return
 
-        #self.apply_commands()
+        if msg['type'] in ['get', 'put']:
+            self.client_handler(msg)
+            return
 
-        raw_msg = sock.recv(SOCK_RECV_SIZE)
-        if raw_msg:
-            msg = json.loads(raw_msg)
+        self.election_timeout = random.uniform(RAND_MIN, RAND_MAX)
 
-            if msg['type'] in ['get', 'put']:
-                self.client_handler(msg)
-                return
-
-            self.election_timeout = random.uniform(RAND_MIN, RAND_MAX)
-            if msg['src'] == self.leader_id:
-                self.last_RPC_time = time.time() * TIME_SCALE
-
-            #TODO SIGHHHHHHHHHH
-            if msg['type'] == 'request_vote' and self.check_terms(msg['term'], msg['leader']):
-                self.voted_for = msg['src']
-                self.print_msg("i %s vote for %s 1" % (self.id, msg['src']), True)
-                self.send_vote_response(msg, msg['term'], True)
-                return
-
-
-            if msg['type'] == 'append_request':
-                self.append_handler(msg)
-            elif msg['type'] == 'vote_request':
-                if msg['term'] < self.current_term:
-                    self.send_vote_response(msg, self.current_term, False)
-                elif self.voted_for is None or self.voted_for == msg['src']:
-                    last_log_index = len(self.log) - 1
-                    (mid, command, last_log_term) = self.log[last_log_index]
-                    if last_log_index <= msg['last_log_index'] and last_log_term <= msg['last_log_term']:
-                        self.voted_for = msg['src']
-                        self.print_msg("i %s vote for %s 2" % (self.id, msg['src']), True)
-                        self.send_vote_response(msg, msg['term'], True)
-                    else:
-                        self.send_vote_response(msg, self.current_term, False)
+        if msg['type'] == 'append_request':
+            self.append_handler(msg)
+        elif msg['type'] == 'vote_request':
+            if msg['term'] < self.current_term:
+                self.send_vote_response(msg, self.current_term, False)
+            elif self.voted_for is None or self.voted_for == msg['src']:
+                last_log_index = len(self.log) - 1
+                (mid, command, last_log_term) = self.log[last_log_index]
+                if last_log_index <= msg['last_log_index'] and last_log_term <= msg['last_log_term']:
+                    self.voted_for = msg['src']
+                    self.print_msg("i %s vote for %s 2" % (self.id, msg['src']), True)
+                    self.send_vote_response(msg, msg['term'], True)
                 else:
                     self.send_vote_response(msg, self.current_term, False)
+            else:
+                self.send_vote_response(msg, self.current_term, False)
 
 
     '''
@@ -297,8 +291,7 @@ class StateMachine:
     if tie, timeout and restart election
     if failed, become follower
     '''
-    def act_as_candidate(self):
-        global sock, SOCK_RECV_SIZE
+    def act_as_candidate(self, msg):
 
         N = len(self.other_server_ids)
         majority_votes = N / 2 + 1
@@ -314,29 +307,21 @@ class StateMachine:
                 self.become_leader()
                 return
             #receive more messages
-            raw_msg = sock.recv(SOCK_RECV_SIZE)
-            #received nothing
-            if len(raw_msg) == 0:
+            if msg['type'] in ['get', 'put']:
+                self.client_handler(msg)
                 return
-            else:
-                msg = json.loads(raw_msg)
-                if msg['type'] in ['get', 'put']:
-                    self.client_handler(msg)
-                    return
-                #we know it's not a client message, this case covers 
-                #append requests/responses and vote requests/responses
-                elif self.check_terms(msg['term'], msg['leader']):
-                    return
-                elif msg['type'] == 'vote_response':
-                    if msg['vote_granted']:
-                        #collect vote
-                        self.votes_count += 1
-                        if self.votes_count >= majority_votes:
-                            self.become_leader()
-                            return
-                #don't vote because we're a candidate
-                elif msg['type'] == 'vote_request':
-                    self.send_vote_response(msg, self.current_term, False)
+            elif msg['type'] == 'vote_response':
+                if msg['vote_granted']:
+                    #collect vote
+                    self.votes_count += 1
+                    if self.votes_count >= majority_votes:
+                        self.become_leader()
+                        return
+            #don't vote because we're a candidate
+            elif msg['type'] == 'vote_request':
+                self.send_vote_response(msg, self.current_term, False)
+            elif msg['type'] == 'append_request':
+                self.append_handler(msg)
     
     '''
     Appends new command to its log as a new entry
@@ -349,48 +334,40 @@ class StateMachine:
         return entry
 
 
-    def act_as_leader(self):
-        global sock, SOCK_RECV_SIZE
-
-        #self.apply_commands()
-
-        raw_msg = sock.recv(SOCK_RECV_SIZE)
-        if raw_msg:
-            msg = json.loads(raw_msg)
-
-            if msg['type'] == 'get':
-                key = msg['key']
-                value = self.key_value_store.get(key)
-                if value is None:
-                    value = ''
-                response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
-                                        'type': 'ok', 'MID': msg['MID'], 'value': value}
-                sock.send(json.dumps(response_to_client))
-                '''
-                command = json.dumps({'cmd': 'get', 'key': key})
-                entry = self.append_new_log_entry(command, msg['MID'])
-                entries.append(entry)
-                self.send_append_request(entry)
-                '''
-            elif msg['type'] == 'put':
-                key = msg['key']
-                value = msg['value']
-                self.key_value_store[key] = value
-                response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
-                                        'type': 'ok', 'MID': msg['MID']}
-                sock.send(json.dumps(response_to_client))
-                '''
-                command = json.dumps({'cmd': 'get', 'key': key, 'value': value})
-                entry = self.append_new_log_entry(command, msg['MID'])
-                entries.append(entry)
-                self.send_append_request(entry)
-                '''
+    def act_as_leader(self, msg):
+        if msg['type'] == 'get':
+            key = msg['key']
+            value = self.key_value_store.get(key)
+            if value is None:
+                value = ''
+            response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
+                                    'type': 'ok', 'MID': msg['MID'], 'value': value}
+            sock.send(json.dumps(response_to_client))
             '''
-            else:
-                if self.check_terms(msg['term'], msg['leader']):
-                    self.print_msg(msg, True)
-                    self.print_msg("i %s HAVE BECOME FOLLOWER" % self.id, True)
+            command = json.dumps({'cmd': 'get', 'key': key})
+            entry = self.append_new_log_entry(command, msg['MID'])
+            entries.append(entry)
+            self.send_append_request(entry)
             '''
+        elif msg['type'] == 'put':
+            key = msg['key']
+            value = msg['value']
+            self.key_value_store[key] = value
+            response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
+                                    'type': 'ok', 'MID': msg['MID']}
+            sock.send(json.dumps(response_to_client))
+            '''
+            command = json.dumps({'cmd': 'get', 'key': key, 'value': value})
+            entry = self.append_new_log_entry(command, msg['MID'])
+            entries.append(entry)
+            self.send_append_request(entry)
+            '''
+        '''
+        else:
+            if self.check_terms(msg['term'], msg['leader']):
+                self.print_msg(msg, True)
+                self.print_msg("i %s HAVE BECOME FOLLOWER" % self.id, True)
+        '''
 
     def send_append_request(self, entries):
         prev_log_index = self.commit_index
