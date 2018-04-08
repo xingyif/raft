@@ -462,6 +462,7 @@ last one in its log (11 in Figure 7).
                 sock.send(json.dumps(response))
                 self.print_msg("%s handle_AppendEntriesRPC_request, REFUSED TO appended new entry from (%s), i don't have idx(%d) in my log" % (
                     str(self.id), str(msg['src']), msg['prev_log_idx']), True)
+                self.print_msg("%s handle_AppendEntriesRPC_request, my log looks like: %s" % (self.id, self.log), True)
                 continue
 
             # step 3 & 4 & 5
