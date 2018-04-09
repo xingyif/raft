@@ -70,9 +70,9 @@ class StateMachine:
                 return
             else:
                 msg = json.loads(raw_msg)
+                self.apply_commands()
                 if msg['type'] not in ['get', 'put']:
                     self.check_terms(msg['term'], msg['leader'])
-                self.apply_commands()
                 if self.state == 'follower':
                     if msg['src'] == self.leader_id:
                         self.last_RPC_time = time.time() * TIME_SCALE
@@ -129,14 +129,15 @@ class StateMachine:
             #response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'fail',
             #'MID': msg['MID']}
         else:
-            response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
-                                  'type': 'redirect', 'MID': msg['MID']}
-            sock.send(json.dumps(response_to_client))
             for m in list(self.queued_client_requests):
                 response_prev_requests_to_client = {'src': self.id, "dst": m['src'], 'leader': self.leader_id,
                                                     'type': 'redirect', 'MID': m['MID']}
                 sock.send(json.dumps(response_prev_requests_to_client))
                 self.queued_client_requests.remove(m)
+            response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
+                                  'type': 'redirect', 'MID': msg['MID']}
+            sock.send(json.dumps(response_to_client))
+
 
 
     def apply_commands(self):
@@ -148,13 +149,25 @@ class StateMachine:
             #print("LOG: " + str(self.log[self.last_applied]) + "LEN: " + str(len(self.log[self.last_applied])))
             (mid, command, term) = self.log[self.last_applied]
             command = json.loads(command)
+            value = ''
             if command['cmd'] == 'put':
                 self.key_value_store[command['key']] = command['value']
             if self.state == 'leader':
+                value = self.key_value_store.get(command['key'])
+                if value is None:
+                    value = ''
+                else:
+                    print("VALUE: " + value)
+                if command['cmd'] == 'get':
+                    response = self.responses_to_client[mid]
+                    self.responses_to_client[mid] = {'src': response['src'], 'dst': response['dst'],
+                                                 'leader': response['leader'], 'type': 'ok',
+                                                 'MID': mid, 'value': value}
+                print("---------------------------------\n"
+                      + "MID: " + str(mid) + "\nCOMMAND: " + str(command) + "\n-----------------")
                 response = self.responses_to_client[mid]
                 self.print_msg(json.dumps(response))
                 sock.send(json.dumps(response))
-
 
 
     '''
@@ -189,7 +202,7 @@ class StateMachine:
         self.voted_for = None
         self.votes_count = 0
         entries = []
-        # self.send_regular_heartbeat(entries)
+        self.send_regular_heartbeat(entries)
 
     '''
     starts election. Candidate increments term, votes for itself
@@ -264,9 +277,10 @@ class StateMachine:
                     #print("ENTRY LENGTH: " + str(len(entry)))
                     #print("ENTRY: " + str(entry))
                     self.log.append(entry)
+                    sock.send(json.dumps(response))
             if msg['leader_commit'] > self.commit_index:
                 self.commit_index = min(msg['leader_commit'], len(self.log) - 1)
-            sock.send(json.dumps(response))
+            #TODO should we respond here?
 
 
 
@@ -353,6 +367,10 @@ class StateMachine:
         return entry
 
 
+    #send entry4
+    #get failure back
+    #send entry3entry4 STILL USE MID FOR 4
+
     def act_as_leader(self, msg):
         N = len(self.other_server_ids) + 1
         majority = N / 2 + 1
@@ -383,10 +401,18 @@ class StateMachine:
         elif msg['type'] == 'append_response':
             if msg['accept_request']:
                 value = self.number_appended[msg['MID']]
+                #someone's successfully appended it so we'll increment this
                 self.number_appended[msg['MID']] = value + 1
                 self.next_index[msg['src']] = len(self.log)  #TODO unsure
                 if self.number_appended[msg['MID']] >= majority:
                     self.commit_index += 1
+                    #for (mid, command, term) in self.log:
+                    #    if mid == msg['MID']:
+                    #        self.commit_index = self.log.index((mid, command, term))
+                    #        break
+                    #TODO this is hacky and bad
+                    #if self.commit_index >= len(self.log):
+                    #    self.commit_index = len(self.log) - 1
                     self.send_append_request(msg['entries'], msg['MID'])
                     #we don't want to bother with this entry again
                     self.number_appended[msg['MID']] = -1000
