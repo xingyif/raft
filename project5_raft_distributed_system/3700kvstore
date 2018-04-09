@@ -486,8 +486,8 @@ last one in its log (11 in Figure 7).
                     'prev_log_term': msg['prev_log_term'], 'entries': msg['entries'],
                     'command': msg['command'], 'accept_request': True}
         sock.send(json.dumps(response))
-        self.print_msg("%s handle_AppendEntriesRPC_request, ACCEPTED appended new entry from (%s)"
-                       % (str(self.id), str(msg['src'])), True)
+        self.print_msg("%s handle_AppendEntriesRPC_request, ACCEPTED appended new entry from (%s), log %s"
+                       % (str(self.id), str(msg['src']), self.log), True)
 
 
 
