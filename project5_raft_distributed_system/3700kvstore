@@ -363,6 +363,7 @@ class StateMachine:
             self.number_appended[msg['MID']] = 0
             if value is None:
                 value = ''
+            # TODO response to client after majority?
             self.responses_to_client[msg['MID']] = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
                                                    'type': 'ok', 'MID': msg['MID'], 'value': value}
             command = json.dumps({'cmd': 'get', 'key': key})
@@ -383,11 +384,9 @@ class StateMachine:
             if msg['accept_request']:
                 value = self.number_appended[msg['MID']]
                 self.number_appended[msg['MID']] = value + 1
-                self.next_index[msg['src']] = len(self.log)
+                self.next_index[msg['src']] = len(self.log)  #TODO unsure
                 if self.number_appended[msg['MID']] >= majority:
-                    self.commit_index += len(msg['entries'])
-                    if self.commit_index >= len(self.log):
-                        self.commit_index = len(self.log) - 1
+                    self.commit_index += 1
                     self.send_append_request(msg['entries'], msg['MID'])
                     #we don't want to bother with this entry again
                     self.number_appended[msg['MID']] = -1000
@@ -399,7 +398,7 @@ class StateMachine:
                 #print("%s temp_entries %s" % (self.id, self.log[self.next_index[msg['src']]]))
                 for entry in msg['entries']:
                     print entry
-                    temp_entries.append(entry)
+                    temp_entries.append(entry) # TODO care about prev_term and prev_idx
                 self.append_one_server(temp_entries, msg['src'], msg['MID'])
 
     def send_append_request(self, entries, MID):
