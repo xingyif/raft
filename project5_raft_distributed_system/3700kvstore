@@ -142,21 +142,18 @@ class StateMachine:
     def apply_commands(self):
         global sock
 
-        pass
-        '''
         while self.commit_index > self.last_applied:
             self.last_applied += 1
-            print("LENGTH: " + str(len(self.log)) + "LAST_APPLIED: " + str(self.last_applied) + "COMMIT: " + str(self.commit_index))
-            print("LOG: " + str(self.log[self.last_applied]) + "LEN: " + str(len(self.log[self.last_applied])))
+            #print("LENGTH: " + str(len(self.log)) + "LAST_APPLIED: " + str(self.last_applied) + "COMMIT: " + str(self.commit_index))
+            #print("LOG: " + str(self.log[self.last_applied]) + "LEN: " + str(len(self.log[self.last_applied])))
             (mid, command, term) = self.log[self.last_applied]
             command = json.loads(command)
             if command['cmd'] == 'put':
                 self.key_value_store[command['key']] = command['value']
             if self.state == 'leader':
                 response = self.responses_to_client[mid]
-                #self.print_msg(json.dumps(response), True)
+                self.print_msg(json.dumps(response))
                 sock.send(json.dumps(response))
-        '''
 
 
 
@@ -192,7 +189,7 @@ class StateMachine:
         self.voted_for = None
         self.votes_count = 0
         entries = []
-        self.send_regular_heartbeat(entries)
+        # self.send_regular_heartbeat(entries)
 
     '''
     starts election. Candidate increments term, votes for itself
@@ -248,6 +245,7 @@ class StateMachine:
                 sock.send(json.dumps(response))
                 return
             try:
+                #print("LENGTH: " + str(self.log[msg['prev_log_index']]))
                 (prev_mid, prev_command, prev_term) = self.log[msg['prev_log_index']]
                 if prev_term != msg['prev_log_term']:
                     sock.send(json.dumps(response))
@@ -262,7 +260,10 @@ class StateMachine:
             self.log = self.log[:keep_index]
             entry = msg['entries'][0]
             if entry not in self.log:
-                self.log.extend(msg['entries'])
+                for entry in msg['entries']:
+                    #print("ENTRY LENGTH: " + str(len(entry)))
+                    #print("ENTRY: " + str(entry))
+                    self.log.append(entry)
             if msg['leader_commit'] > self.commit_index:
                 self.commit_index = min(msg['leader_commit'], len(self.log) - 1)
             sock.send(json.dumps(response))
@@ -367,7 +368,7 @@ class StateMachine:
             command = json.dumps({'cmd': 'get', 'key': key})
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
-            self.send_append_request(entry, msg['MID'])
+            self.send_append_request(entries, msg['MID'])
         elif msg['type'] == 'put':
             key = msg['key']
             value = msg['value']
@@ -392,15 +393,14 @@ class StateMachine:
                     self.number_appended[msg['MID']] = -1000
             else:
                 value = self.next_index[msg['src']]
-                print("IDX: " + str(value))
-                print("LEN: " + str(len(self.log)))
-                temp_entries = []
-                temp_entries.append(self.log[value])
                 self.next_index[msg['src']] = value - 1
-                send_entries = []
-                send_entries.extend(temp_entries)
-                send_entries.extend(msg['entries'])
-                self.append_one_server(send_entries, msg['src'], msg['MID'])
+                temp_entries = []
+                temp_entries.append(self.log[self.next_index[msg['src']]])
+                #print("%s temp_entries %s" % (self.id, self.log[self.next_index[msg['src']]]))
+                for entry in msg['entries']:
+                    print entry
+                    temp_entries.append(entry)
+                self.append_one_server(temp_entries, msg['src'], msg['MID'])
 
     def send_append_request(self, entries, MID):
         for server_id in self.other_server_ids:
