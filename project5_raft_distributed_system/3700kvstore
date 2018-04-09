@@ -438,7 +438,6 @@ last one in its log (11 in Figure 7).
                     'prev_log_term': msg['prev_log_term'], 'entries': msg['entries'],
                     'command': msg['command'], 'accept_request': False}
         # tuple for getting entry values
-        entries = msg['entries']
 
         # term < currentTerm, then return False, leader will update itself and become a follower
         if self.current_term > msg['term']:
@@ -474,9 +473,9 @@ last one in its log (11 in Figure 7).
         if prev_term != msg['prev_log_term']:
             self.log = self.log[:prev_log_idx+1]
         # append any new entries not already in the log
-        entry = msg['entries'][0]
-        if entry not in self.log:
-            self.log.extend(msg['entries'])
+        for entry in msg['entries']:
+            if entry not in self.log:
+                self.log.append(entry)
         # if leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
         if msg['leader_commit'] > self.highest_committed_entry_idx:
             self.highest_committed_entry_idx = min(msg['leader_commit'], len(self.log) - 1)
@@ -590,7 +589,7 @@ last one in its log (11 in Figure 7).
                     entry = (msg['MID'], msg['command'], msg['term'])
                     command = json.loads(msg['command'])
                     self.highest_committed_entry_idx = self.log.index(entry)
-                    self.print_msg("%s act_as_leader, got majority RPC, commit command: %s" % (self.id, command), True)
+                    self.print_msg("%s act_as_leader, got majority RPC, commit command: %s" % (self.id, msg['command']), True)
                     # if self.highest_committed_entry_idx > self.last_applied_entry_idx:
                     self.last_applied_entry_idx = self.log.index(entry)
                     # apply the command # TODO we could also get the cmd from log[last_applied], make sure they are the same
@@ -615,7 +614,7 @@ last one in its log (11 in Figure 7).
                         # put the key and value into the map
                         self.key_value_store[command['key']] = command['value']
                         self.print_msg(
-                            "%s act_as_leader, applied PUT command: %s" % (self.id, command), True)
+                            "%s act_as_leader, applied PUT command: %s" % (self.id, msg['command']), True)
                         response_to_client = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
                                               'type': 'ok', 'MID': msg['MID']}
                         sock.send(json.dumps(response_to_client))
