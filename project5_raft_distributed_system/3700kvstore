@@ -58,7 +58,9 @@ class StateMachine:
         self.key_value_store = {}
         self.queued_client_requests = []
         #leader checking how many followers have appended
+        # MID, num_of_followers_appended (set(id))
         self.number_appended = {}
+        # MID, response
         self.responses_to_client = {}
 
     def run(self):
@@ -70,7 +72,7 @@ class StateMachine:
                 return
             else:
                 msg = json.loads(raw_msg)
-                self.apply_commands()
+                self.apply_command_and_reply_client()
                 if msg['type'] not in ['get', 'put']:
                     self.check_terms(msg['term'], msg['leader'])
                 if self.state == 'follower':
@@ -121,6 +123,9 @@ class StateMachine:
         if T > self.current_term:
             self.become_follower(T, leader)
 
+    '''
+    follower respond redirect when got client messages, or queue up messages if leader is unknown
+    '''
     def client_handler(self, msg):
         global sock
 
@@ -139,33 +144,35 @@ class StateMachine:
             sock.send(json.dumps(response_to_client))
 
 
-
-    def apply_commands(self):
+    '''
+        For all servers: commits and applies the commands to StateMachine
+        For leader: send clients all queued up responses
+    '''
+    def apply_command_and_reply_client(self):
         global sock
 
-        while self.commit_index > self.last_applied:
+        if self.commit_index > self.last_applied:
             self.last_applied += 1
             #print("LENGTH: " + str(len(self.log)) + "LAST_APPLIED: " + str(self.last_applied) + "COMMIT: " + str(self.commit_index))
             #print("LOG: " + str(self.log[self.last_applied]) + "LEN: " + str(len(self.log[self.last_applied])))
             (mid, command, term) = self.log[self.last_applied]
             command = json.loads(command)
-            value = ''
             if command['cmd'] == 'put':
                 self.key_value_store[command['key']] = command['value']
+            elif command['cmd'] == 'get':
+                value = self.key_value_store.get(command['key'], '')
             if self.state == 'leader':
-                value = self.key_value_store.get(command['key'])
-                if value is None:
-                    value = ''
-                else:
-                    print("VALUE: " + value)
+                # TODO probably don't need to store responses in dict, just send to client
                 if command['cmd'] == 'get':
-                    response = self.responses_to_client[mid]
-                    self.responses_to_client[mid] = {'src': response['src'], 'dst': response['dst'],
-                                                 'leader': response['leader'], 'type': 'ok',
-                                                 'MID': mid, 'value': value}
-                print("---------------------------------\n"
-                      + "MID: " + str(mid) + "\nCOMMAND: " + str(command) + "\n-----------------")
-                response = self.responses_to_client[mid]
+                    value = self.key_value_store.get(command['key'], '')
+                    self.responses_to_client[mid] = {'src': self.id, 'dst': command['client_id'],
+                                                    'leader': self.id, 'type': 'ok',
+                                                    'MID': mid, 'value': value}
+                elif command['cmd'] =='put':
+                    self.responses_to_client[mid] = {'src': self.id, 'dst': command['client_id'],
+                                                     'leader': self.id, 'type': 'ok',
+                                                     'MID': mid}
+                response = self.responses_to_client[mid] # TODO should i remove it?
                 self.print_msg(json.dumps(response))
                 sock.send(json.dumps(response))
 
@@ -244,6 +251,9 @@ class StateMachine:
         'vote_granted': vote_granted}
         sock.send(json.dumps(vote_response))
 
+    '''
+        For followers and candidates, handle append entry requests 
+    '''
     def append_handler(self, msg):
         response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'term': self.current_term,
                     'type': 'append_response', 'MID': msg['MID'], 'prev_log_index': msg['prev_log_index'],
@@ -377,14 +387,12 @@ class StateMachine:
         entries = []
         if msg['type'] == 'get':
             key = msg['key']
-            value = self.key_value_store.get(key)
+            value = self.key_value_store.get(key, '')
             self.number_appended[msg['MID']] = 0
-            if value is None:
-                value = ''
             # TODO response to client after majority?
-            self.responses_to_client[msg['MID']] = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
-                                                   'type': 'ok', 'MID': msg['MID'], 'value': value}
-            command = json.dumps({'cmd': 'get', 'key': key})
+            #self.responses_to_client[msg['MID']] = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
+            #                                       'type': 'ok', 'MID': msg['MID'], 'value': value}
+            command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key})
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
             self.send_append_request(entries, msg['MID'])
@@ -394,7 +402,7 @@ class StateMachine:
             self.number_appended[msg['MID']] = 0
             self.responses_to_client[msg['MID']] = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
                                                    'type': 'ok', 'MID': msg['MID']}
-            command = json.dumps({'cmd': 'get', 'key': key, 'value': value})
+            command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key, 'value': value})
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
             self.send_append_request(entries, msg['MID'])
