@@ -276,22 +276,23 @@ class StateMachine:
             except IndexError:
                 sock.send(json.dumps(response))
                 return
+            # ready to accept the AppendEntriesRPC request
             response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'term': self.current_term,
                         'type': 'append_response', 'MID': msg['MID'], 'prev_log_index': msg['prev_log_index'],
                         'prev_log_term': msg['prev_log_term'], 'entries': msg['entries'], 'accept_request': True}
-            keep_index = msg['prev_log_index'] + 1
-            self.log = self.log[:keep_index]
-            entry = msg['entries'][0]
-            if entry not in self.log:
-                for entry in msg['entries']:
-                    #print("ENTRY LENGTH: " + str(len(entry)))
-                    #print("ENTRY: " + str(entry))
+            # delete all following entries after the current one
+            # If an existing entry conflicts with a new one (same index
+            # but different terms), delete the ***existing*** entry and all that
+            # follow it
+            if prev_term != msg['prev_log_term']: # TODO not so sure about the if
+                keep_index = msg['prev_log_index'] # TODO +1 ?
+                self.log = self.log[:keep_index]
+            for entry in msg['entries']:           # TODO swapped the if and for
+                if entry not in self.log:
                     self.log.append(entry)
-                    sock.send(json.dumps(response))
             if msg['leader_commit'] > self.commit_index:
                 self.commit_index = min(msg['leader_commit'], len(self.log) - 1)
-            #TODO should we respond here?
-
+            sock.send(json.dumps(response))   # TODO this was in for loop
 
 
     def act_as_follower(self, msg):
