@@ -247,7 +247,7 @@ class StateMachine:
         global sock
 
         vote_response = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id,
-        'type': 'vote_response', 'MID': str(uuid.UUID), 'term': term,
+        'type': 'vote_response', 'MID': msg['MID'], 'term': term,
         'vote_granted': vote_granted}
         sock.send(json.dumps(vote_response))
 
@@ -366,7 +366,7 @@ class StateMachine:
                 self.append_handler(msg)
     
     '''
-    Appends new command to its log as a new entry
+    For leader, appends new command to its log as a new entry
     '''
     def append_new_log_entry(self, command, mid):
         # TODO should entry contain MID ?
@@ -401,8 +401,8 @@ class StateMachine:
             key = msg['key']
             value = msg['value']
             self.number_appended[msg['MID']] = 0
-            self.responses_to_client[msg['MID']] = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
-                                                   'type': 'ok', 'MID': msg['MID']}
+            # self.responses_to_client[msg['MID']] = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
+            #                                        'type': 'ok', 'MID': msg['MID']}
             command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key, 'value': value})
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
@@ -412,22 +412,19 @@ class StateMachine:
                 value = self.number_appended[msg['MID']]
                 #someone's successfully appended it so we'll increment this
                 self.number_appended[msg['MID']] = value + 1
-                self.next_index[msg['src']] = len(self.log)  #TODO unsure
+                entries_appended = msg['entries']
+                last_entry_idx = len(entries_appended) - 1
+                last_entry_appended = entries_appended[last_entry_idx]
+                # set the next index to send to be: the index of last entry appended + 1
+                self.next_index[msg['src']] = self.log.index(last_entry_appended) #len(self.log)  #TODO unsure
                 if self.number_appended[msg['MID']] >= majority:
                     self.commit_index += 1
-                    #for (mid, command, term) in self.log:
-                    #    if mid == msg['MID']:
-                    #        self.commit_index = self.log.index((mid, command, term))
-                    #        break
-                    #TODO this is hacky and bad
-                    #if self.commit_index >= len(self.log):
-                    #    self.commit_index = len(self.log) - 1
                     self.send_append_request(msg['entries'], msg['MID'])
                     #we don't want to bother with this entry again
                     self.number_appended[msg['MID']] = -1000
             else:
-                value = self.next_index[msg['src']]
-                self.next_index[msg['src']] = value - 1
+                next_idx_to_append = self.next_index[msg['src']]
+                self.next_index[msg['src']] = next_idx_to_append - 1
                 temp_entries = []
                 temp_entries.append(self.log[self.next_index[msg['src']]])
                 #print("%s temp_entries %s" % (self.id, self.log[self.next_index[msg['src']]]))
