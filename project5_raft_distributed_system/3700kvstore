@@ -68,6 +68,7 @@ class StateMachine:
         self.number_appended = {}
         # MID, response
         self.responses_to_client = {}
+        self.queued_client_requests = []
 
     def run(self):
         global sock, SOCK_RECV_SIZE
@@ -91,7 +92,7 @@ class StateMachine:
                     self.act_as_leader(msg)
 
     def print_msg(self, msg, bool=False):
-        #bool = False
+        bool = False
         if bool:
             print(msg)
         return
@@ -139,9 +140,15 @@ class StateMachine:
         global sock
 
         if self.leader_id == 'FFFF':
+            #self.queued_client_requests.append(msg)
             response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'fail',
                                   'MID': msg['MID']}
         else:
+            #for m in list(self.queued_client_requests):
+            #    response_prev_requests_to_client = {'src': self.id, "dst": m['src'], 'leader': self.leader_id,
+             #                                       'type': 'redirect', 'MID': m['MID']}
+             #   sock.send(json.dumps(response_prev_requests_to_client))
+             #   self.queued_client_requests.remove(m)
             response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
                                   'type': 'redirect', 'MID': msg['MID']}
         sock.send(json.dumps(response_to_client))
@@ -400,6 +407,7 @@ class StateMachine:
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
             self.send_append_request(entries, msg['MID'])
+            self.commit_index += 1
         elif msg['type'] == 'put':
             key = msg['key']
             value = msg['value']
@@ -411,6 +419,7 @@ class StateMachine:
             entries.append(entry)
             self.send_append_request(entries, msg['MID'])
             self.print_msg("REQUEST SENT " + msg['MID'] + " " + str(time.time()), True)
+            self.commit_index += 1
         elif msg['type'] == 'append_response':
             if msg['accept_request']:
                 self.print_msg("ACCEPTED " + msg['MID'] + " " + str(time.time()), True)
@@ -422,6 +431,7 @@ class StateMachine:
                 last_entry_appended = entries_appended[last_entry_idx]
                 # set the next index to send to be: the index of last entry appended + 1
                 self.next_index[msg['src']] = len(self.log)  # TODO unsure
+                '''
                 if self.number_appended[msg['MID']] >= majority:
                     self.commit_index += 1
                     self.print_msg("COMMITTED " + msg['MID'] + " " + str(time.time()), True)
@@ -429,6 +439,7 @@ class StateMachine:
                     #self.send_append_request(msg['entries'], msg['MID'])
                     # we don't want to bother with this entry again
                     self.number_appended[msg['MID']] = -1000
+                '''
             else:
                 self.print_msg("REJECTED " + msg['MID'] + " " + str(time.time()), True)
                 next_idx_to_append = self.next_index[msg['src']]
