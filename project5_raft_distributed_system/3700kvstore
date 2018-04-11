@@ -91,7 +91,7 @@ class StateMachine:
                     self.act_as_leader(msg)
 
     def print_msg(self, msg, bool=False):
-        bool = False
+        #bool = False
         if bool:
             print(msg)
         return
@@ -162,8 +162,6 @@ class StateMachine:
             command = json.loads(command)
             if command['cmd'] == 'put':
                 self.key_value_store[command['key']] = command['value']
-            elif command['cmd'] == 'get':
-                value = self.key_value_store.get(command['key'], '')
             if self.state == 'leader':
                 # TODO probably don't need to store responses in dict, just send to client
                 if command['cmd'] == 'get':
