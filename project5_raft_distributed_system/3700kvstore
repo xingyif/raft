@@ -2,7 +2,7 @@
 
 import time
 import uuid
-import sys, socket, select, json
+import sys, socket, json
 import random
 import threading
 
@@ -63,7 +63,6 @@ class StateMachine:
         self.election_timeout = random.uniform(RAND_MIN, RAND_MAX)
         self.start_election_time = 0
         self.key_value_store = {}
-        self.queued_client_requests = []
         # leader checking how many followers have appended
         # MID, num_of_followers_appended (set(id))
         self.number_appended = {}
@@ -92,7 +91,7 @@ class StateMachine:
                     self.act_as_leader(msg)
 
     def print_msg(self, msg, bool=False):
-        # bool = False
+        bool = False
         if bool:
             print(msg)
         return
@@ -140,17 +139,9 @@ class StateMachine:
         global sock
 
         if self.leader_id == 'FFFF':
-            #self.queued_client_requests.append(msg)
             response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'fail',
                                   'MID': msg['MID']}
         else:
-            '''
-            for m in list(self.queued_client_requests):
-                response_prev_requests_to_client = {'src': self.id, "dst": m['src'], 'leader': self.leader_id,
-                                                    'type': 'redirect', 'MID': m['MID']}
-                sock.send(json.dumps(response_prev_requests_to_client))
-                self.queued_client_requests.remove(m)
-            '''
             response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
                                   'type': 'redirect', 'MID': msg['MID']}
         sock.send(json.dumps(response_to_client))
@@ -187,6 +178,7 @@ class StateMachine:
                 response = self.responses_to_client[mid]  # TODO should i remove it?
                 self.print_msg(json.dumps(response))
                 sock.send(json.dumps(response))
+                self.print_msg("RESPONSE SENT " + mid + " " + str(time.time()), True)
 
     '''
     become a follower
@@ -410,7 +402,6 @@ class StateMachine:
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
             self.send_append_request(entries, msg['MID'])
-            self.commit_index += 1
         elif msg['type'] == 'put':
             key = msg['key']
             value = msg['value']
@@ -421,10 +412,10 @@ class StateMachine:
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
             self.send_append_request(entries, msg['MID'])
-            self.commit_index += 1
+            self.print_msg("REQUEST SENT " + msg['MID'] + " " + str(time.time()), True)
         elif msg['type'] == 'append_response':
-            '''
             if msg['accept_request']:
+                self.print_msg("ACCEPTED " + msg['MID'] + " " + str(time.time()), True)
                 value = self.number_appended[msg['MID']]
                 # someone's successfully appended it so we'll increment this
                 self.number_appended[msg['MID']] = value + 1
@@ -435,11 +426,13 @@ class StateMachine:
                 self.next_index[msg['src']] = len(self.log)  # TODO unsure
                 if self.number_appended[msg['MID']] >= majority:
                     self.commit_index += 1
+                    self.print_msg("COMMITTED " + msg['MID'] + " " + str(time.time()), True)
                     #TODO uncommenting out the below line causes every test to fail
                     #self.send_append_request(msg['entries'], msg['MID'])
                     # we don't want to bother with this entry again
                     self.number_appended[msg['MID']] = -1000
             else:
+                self.print_msg("REJECTED " + msg['MID'] + " " + str(time.time()), True)
                 next_idx_to_append = self.next_index[msg['src']]
                 self.next_index[msg['src']] = next_idx_to_append - 1
                 temp_entries = []
@@ -449,7 +442,7 @@ class StateMachine:
                     # print entry
                     temp_entries.append(entry)  # TODO care about prev_term and prev_idx
                 self.append_one_server(temp_entries, msg['src'], msg['MID'])
-            '''
+
 
     def send_append_request(self, entries, MID):
         for server_id in self.other_server_ids:
