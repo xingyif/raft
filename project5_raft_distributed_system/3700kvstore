@@ -250,13 +250,29 @@ class StateMachine:
         sock.send(json.dumps(vote_response))
 
     '''
+    finds first instance of term in this log
+    '''
+    def find_first_term_instance(self, term, start_index):
+        for i in range(start_index, 0, -1):
+            (mid, command, cur_term) = self.log[i]
+            if cur_term < term:
+                return i + 1
+        return 1
+
+    '''
+    sends append response with given values
+    '''
+    def send_append_response(self, msg, prev_log_index, prev_log_term, accept_request):
+        response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'term': self.current_term,
+                    'type': 'append_response', 'MID': msg['MID'], 'prev_log_index': prev_log_index,
+                    'prev_log_term': prev_log_term, 'entries': msg['entries'],
+                    'last_log_index': len(self.log) - 1, 'accept_request': accept_request}
+        sock.send(json.dumps(response))
+
+    '''
     For followers and candidates, handle append entry requests 
     '''
     def append_handler(self, msg):
-        response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'term': self.current_term,
-                    'type': 'append_response', 'MID': msg['MID'], 'prev_log_index': msg['prev_log_index'],
-                    'prev_log_term': msg['prev_log_term'], 'entries': msg['entries'], 'accept_request': False}
-
         if len(msg['entries']) == 0:
             # TODO maybe heartbeats should respond?
             self.become_follower(msg['term'], msg['leader'])
@@ -264,44 +280,35 @@ class StateMachine:
             if msg['leader_commit'] > self.commit_index:
                 self.commit_index = min(msg['leader_commit'], len(self.log) - 1)
             return
-        else:
-            if self.current_term > msg['term']:
-                self.print_msg("REJECTED because I'm at term %s compared to %s" % (self.current_term, msg['term']), True)
-                sock.send(json.dumps(response))
-                return
-            try:
-                (prev_mid, prev_command, prev_term) = self.log[msg['prev_log_index']]
-                if prev_term != msg['prev_log_term']:
-                    self.print_msg("REJECTED because prev_term %s didn't match prev_log_term %s mid %s" %
-                                   (prev_term, msg['prev_log_term'], msg['MID']), True)
-                    sock.send(json.dumps(response))
-                    return
-            except IndexError:
-                self.print_msg("REJECTED because index error. prev_log_index %s with len %s mid %s" %
-                               (msg['prev_log_index'], str(len(self.log)), msg['MID']), True)
-                sock.send(json.dumps(response))
-                return
-            # ready to accept the AppendEntriesRPC request
-            # delete all following entries after the current one
-            # If an existing entry conflicts with a new one (same index
-            # but different terms), delete the ***existing*** entry and all that
-            # follow it
-            keep_index = msg['prev_log_index'] + 1
-            self.log = self.log[:keep_index]
-            for entry in msg['entries']:  # TODO swapped the if and for
-                if entry not in self.log:
-                    self.log.append(entry)
-            if self.last_applied > len(self.log) - 1:
-                self.last_applied = len(self.log) - 1
-            if self.commit_index > len(self.log) - 1:
-                self.commit_index = len(self.log) - 1
-            if msg['leader_commit'] > self.commit_index:
-                self.commit_index = min(msg['leader_commit'], len(self.log) - 1)
-            response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'term': self.current_term,
-                        'type': 'append_response', 'MID': msg['MID'], 'prev_log_index': msg['prev_log_index'],
-                        'prev_log_term': msg['prev_log_term'], 'entries': msg['entries'],
-                        'last_log_index': len(self.log) - 1, 'accept_request': True}
-            sock.send(json.dumps(response))
+        if self.current_term > msg['term']:
+            self.print_msg("REJECTED because I'm at term %s compared to %s" % (self.current_term, msg['term']), True)
+            self.send_append_response(msg, msg['prev_log_index'], msg['prev_log_term'], False)
+            return
+        try:
+            (prev_mid, prev_command, prev_term) = self.log[msg['prev_log_index']]
+            if prev_term != msg['prev_log_term']:
+                index = self.find_first_term_instance(prev_term, msg['prev_log_index'])
+                self.send_append_response(msg, index, prev_term, False)
+        except IndexError:
+            (mid, command, term) = self.log[len(self.log) - 1]
+            self.send_append_response(msg, len(self.log) - 1, term, False)
+        # ready to accept the AppendEntriesRPC request
+        # delete all following entries after the current one
+        # If an existing entry conflicts with a new one (same index
+        # but different terms), delete the ***existing*** entry and all that
+        # follow it
+        keep_index = msg['prev_log_index'] + 1
+        self.log = self.log[:keep_index]
+        for entry in msg['entries']:  # TODO swapped the if and for
+            if entry not in self.log:
+                self.log.append(entry)
+        if self.last_applied > len(self.log) - 1:
+            self.last_applied = len(self.log) - 1
+        if self.commit_index > len(self.log) - 1:
+            self.commit_index = len(self.log) - 1
+        if msg['leader_commit'] > self.commit_index:
+            self.commit_index = min(msg['leader_commit'], len(self.log) - 1)
+        self.send_append_response(msg, msg['prev_log_index'], msg['prev_log_term'], True)
 
     def act_as_follower(self, msg):
         # have we timed out
@@ -418,7 +425,7 @@ class StateMachine:
                 # someone's successfully appended it so we'll increment this
                 self.number_appended[msg['MID']] = value + 1
                 # set the next index to send to be: the index of last entry appended + 1
-                self.next_index[msg['src']] = msg['last_log_index']  # TODO unsure
+                self.next_index[msg['src']] = msg['last_log_index'] + 1  # TODO unsure
                 if self.number_appended[msg['MID']] >= majority:
                     self.commit_index += 1
                     self.print_msg("COMMITTED " + msg['MID'] + " " + str(time.time()))
@@ -426,8 +433,7 @@ class StateMachine:
                     self.number_appended[msg['MID']] = -1000
             else:
                 self.print_msg("REJECTED " + msg['MID'], True)
-                next_idx_to_append = self.next_index[msg['src']]
-                self.next_index[msg['src']] = next_idx_to_append - 1
+                self.next_index[msg['src']] = msg['prev_log_index']
                 temp_entries = []
                 temp_entries.append(self.log[self.next_index[msg['src']]])
                 # print("%s temp_entries %s" % (self.id, self.log[self.next_index[msg['src']]]))
