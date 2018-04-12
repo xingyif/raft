@@ -446,6 +446,8 @@ class StateMachine:
                 #SP:
                 #I think instead of a thread we need to keep track of servers we haven't gotten
                 #a response from, for each message. This will handle all that and resend to each of the needed ones
+                #structure should be MID->servers that haven't accepted message yet
+                #once all servers have accepted request, remove MID from dict
                 self.check_timeouts()
 
     def send_indefinitely(self, entries, mid):
