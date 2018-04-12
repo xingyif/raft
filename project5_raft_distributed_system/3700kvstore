@@ -17,7 +17,7 @@ replica_ids = sys.argv[2:]
 RAND_MIN = 150
 RAND_MAX = 300
 TIME_SCALE = 1000
-HEARTBEAT_INTERVAL = 0.1
+HEARTBEAT_INTERVAL = 0.10
 
 # Connect to the network. All messages to/from other replicas and clients will
 # occur over this socket
@@ -65,9 +65,11 @@ class StateMachine:
         # MID, response
         self.responses_to_client = {}
         self.queued_client_requests = []
+        self.committed_message = {}
 
     def run(self):
         global sock, SOCK_RECV_SIZE
+
         while True:
             raw_msg = sock.recv(SOCK_RECV_SIZE)
             # received nothing
@@ -88,7 +90,7 @@ class StateMachine:
                     self.act_as_leader(msg)
 
     def print_msg(self, msg, bool=False):
-        bool = False
+        #bool = False
         if bool:
             print(msg)
         return
@@ -227,7 +229,6 @@ class StateMachine:
         # send out request vote RPCs
         self.send_vote_requests()
         # process the results
-        # self.process_vote_results(start_election_time)
 
     def send_vote_requests(self):
         global sock
@@ -263,6 +264,8 @@ class StateMachine:
     sends append response with given values
     '''
     def send_append_response(self, msg, prev_log_index, prev_log_term, accept_request):
+        global sock
+
         response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'term': self.current_term,
                     'type': 'append_response', 'MID': msg['MID'], 'prev_log_index': prev_log_index,
                     'prev_log_term': prev_log_term, 'entries': msg['entries'],
@@ -288,9 +291,15 @@ class StateMachine:
             (prev_mid, prev_command, prev_term) = self.log[msg['prev_log_index']]
             if prev_term != msg['prev_log_term']:
                 index = self.find_first_term_instance(prev_term, msg['prev_log_index'])
+                self.print_msg("REJECTED %s because my prev_term %s doesn't match their's %s at index %s"
+                               % (msg['MID'], prev_term, msg['prev_log_term'], msg['prev_log_index']), True)
+                (mid, command, term) = self.log[index]
+                self.print_msg("ADJUSTED index to %s with term %s" % (index, term), True)
                 self.send_append_response(msg, index, prev_term, False)
         except IndexError:
             (mid, command, term) = self.log[len(self.log) - 1]
+            self.print_msg("REJECTED %s because length of log is %s"
+                           % (msg['MID'], str(len(self.log))), True)
             self.send_append_response(msg, len(self.log) - 1, term, False)
         # ready to accept the AppendEntriesRPC request
         # delete all following entries after the current one
@@ -385,8 +394,7 @@ class StateMachine:
         # TODO do i care about duplicate?
         entry = (mid, command, self.current_term)
         self.log.append(entry)
-        value = self.number_appended[mid]
-        self.number_appended[mid] = value + 1
+        self.number_appended[mid].add(self.id)
         return entry
 
     # send entry4
@@ -397,40 +405,33 @@ class StateMachine:
         majority = N / 2 + 1
         entries = []
         if msg['type'] == 'get':
+            self.committed_message[msg['MID']] = False
             key = msg['key']
-            value = self.key_value_store.get(key, '')
-            self.number_appended[msg['MID']] = 0
-            # TODO response to client after majority?
-            # self.responses_to_client[msg['MID']] = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
-            #                                       'type': 'ok', 'MID': msg['MID'], 'value': value}
+            self.number_appended[msg['MID']] = set()
             command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key})
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
             self.send_append_request(entries, msg['MID'])
         elif msg['type'] == 'put':
+            self.committed_message[msg['MID']] = False
             key = msg['key']
             value = msg['value']
-            self.number_appended[msg['MID']] = 0
-            # self.responses_to_client[msg['MID']] = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
-            #                                        'type': 'ok', 'MID': msg['MID']}
+            self.number_appended[msg['MID']] = set()
             command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key, 'value': value})
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
             self.send_append_request(entries, msg['MID'])
-            self.print_msg("REQUEST SENT " + msg['MID'] + " " + str(time.time()))
         elif msg['type'] == 'append_response':
             if msg['accept_request']:
-                self.print_msg("ACCEPTED " + msg['MID'] + " " + str(time.time()))
-                value = self.number_appended[msg['MID']]
                 # someone's successfully appended it so we'll increment this
-                self.number_appended[msg['MID']] = value + 1
+                self.number_appended[msg['MID']].add(msg['src'])
                 # set the next index to send to be: the index of last entry appended + 1
                 self.next_index[msg['src']] = msg['last_log_index'] + 1  # TODO unsure
-                if self.number_appended[msg['MID']] >= majority:
+                if len(self.number_appended[msg['MID']]) >= majority and not self.committed_message[msg['MID']]:
                     self.commit_index += 1
+                    self.committed_message[msg['MID']] = True
                     self.print_msg("COMMITTED " + msg['MID'] + " " + str(time.time()))
                     # we don't want to bother with this entry again
-                    self.number_appended[msg['MID']] = -1000
             else:
                 self.print_msg("REJECTED " + msg['MID'], True)
                 self.next_index[msg['src']] = msg['prev_log_index']
@@ -442,12 +443,16 @@ class StateMachine:
                 self.append_one_server(temp_entries, msg['src'], msg['MID'])
 
     def send_append_request(self, entries, mid):
-        for server_id in self.other_server_ids:
+        t = threading.Timer(HEARTBEAT_INTERVAL, self.send_append_request, [entries, mid])
+        servers_to_send = set(self.other_server_ids) - self.number_appended[str(mid)]
+        #TODO add print statement here to make sure this is correct
+        if len(servers_to_send) == 0:
+            t.cancel()
+        for server_id in servers_to_send:
             self.append_one_server(entries, server_id, mid)
 
     def append_one_server(self, entries, server_id, mid):
         prev_log_index = self.next_index[server_id] - 1
-        #print("PREV_LOG_INDEX " + str(prev_log_index) + " MID " + str(mid))
         (prev_mid, prev_command, prev_log_term) = self.log[prev_log_index]
         append_entry_RPC = {'src': self.id, 'dst': server_id, 'leader': self.id,
                             'type': 'append_request', 'MID': mid, 'term': self.current_term,
