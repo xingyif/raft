@@ -68,7 +68,8 @@ class StateMachine:
         self.responses_to_client = {}
         self.queued_client_requests = []
         self.committed_message = {}
-        # all unacked messages, {MID, [RPC_msgs, ...]}
+        #time the last heartbeat was sent
+        self.last_heartbeat_sent = 0
         # serverID is the receiver's id
         self.unacked_requests = {}
 
@@ -92,6 +93,8 @@ class StateMachine:
                 elif self.state == 'candidate':
                     self.act_as_candidate(msg)
                 elif self.state == 'leader':
+                    if time.time() - self.last_heartbeat_sent >= HEARTBEAT_INTERVAL:
+                        self.send_regular_heartbeat(self, [])
                     self.act_as_leader(msg)
 
     def print_msg(self, msg, bool=False):
@@ -212,8 +215,7 @@ class StateMachine:
         self.leader_id = self.id
         self.voted_for = None
         self.votes_count = 0
-        entries = []
-        self.send_regular_heartbeat(entries)
+        self.send_regular_heartbeat([])
 
     '''
     starts election. Candidate increments term, votes for itself
@@ -421,6 +423,7 @@ class StateMachine:
             command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key})
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
+            self.unacked_requests = set()
             self.send_append_request(entries, msg['MID'])
         elif msg['type'] == 'put':
             self.committed_message[msg['MID']] = False
@@ -430,6 +433,7 @@ class StateMachine:
             command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key, 'value': value})
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
+            self.unacked_requests = set()
             self.send_append_request(entries, msg['MID'])
         elif msg['type'] == 'append_response':
             if msg['accept_request']:
@@ -442,7 +446,7 @@ class StateMachine:
                 for m in list(unacked_msg_for_server):
                     if m['src'] == msg['src']:
                         unacked_msg_for_server.remove(m)
-
+                        break
                 if len(self.number_appended[msg['MID']]) >= majority and not self.committed_message[msg['MID']]:
                     self.print_msg("%s gotten MAJORITY RPC" % self.id, True)
                     self.commit_index += 1
@@ -458,9 +462,14 @@ class StateMachine:
                 for entry in msg['entries']:
                     temp_entries.append(entry)  # TODO care about prev_term and prev_idx
                 self.append_one_server(temp_entries, msg['src'], msg['MID'])
-            # if they didn't even send back a response
+        self.check_unacked_messages()
+
+    def check_unacked_messages(self):
+        for mid in self.unacked_requests:
+            servers_to_send = self.unacked_requests[mid]
 
 
+    '''
     def send_indefinitely(self, mid):
         global RTT_INTERVAL, sock
 
@@ -472,6 +481,7 @@ class StateMachine:
                 sock.send(json.dumps(m))
 
         t.start()
+        '''
 
 
     def send_append_request(self, entries, mid):
@@ -482,7 +492,7 @@ class StateMachine:
         print("START")
         for server_id in self.number_appended[mid]:
             print(server_id)
-        for server_id in servers_to_send:
+        for server_id in self.other_server_ids:
             self.append_one_server(entries, server_id, mid)
 
     def append_one_server(self, entries, server_id, mid):
@@ -496,16 +506,14 @@ class StateMachine:
                             'entries': entries, 'leader_commit': self.commit_index,
                             'prev_log_index': prev_log_index, 'prev_log_term': prev_log_term}
         sock.send(json.dumps(append_entry_RPC))
-        unacked_msg_for_server = set()
-        unacked_msg_for_server.add(append_entry_RPC)
-        self.unacked_requests[mid] = unacked_msg_for_server
+        self.unacked_requests[mid].add(append_entry_RPC)
 
     def send_regular_heartbeat(self, entries):
         global HEARTBEAT_INTERVAL
+        self.last_heartbeat_sent = time.time()
         mid = str(uuid.UUID)
         self.number_appended[mid] = set()
         self.send_append_request(entries, mid)
-        threading.Timer(HEARTBEAT_INTERVAL, self.send_regular_heartbeat, [entries]).start()
 
 
 def main():
