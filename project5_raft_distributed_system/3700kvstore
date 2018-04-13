@@ -17,8 +17,8 @@ replica_ids = sys.argv[2:]
 RAND_MIN = 150
 RAND_MAX = 300
 TIME_SCALE = 1000
-HEARTBEAT_INTERVAL = 0.10
-RTT_INTERVAL = .03
+HEARTBEAT_INTERVAL = 100
+RTT_INTERVAL = 50
 
 # Connect to the network. All messages to/from other replicas and clients will
 # occur over this socket
@@ -86,7 +86,7 @@ class StateMachine:
                 elif self.state == 'candidate':
                     self.act_as_candidate(msg)
                 elif self.state == 'leader':
-                    if time.time() - self.last_heartbeat_sent >= HEARTBEAT_INTERVAL \
+                    if time.time() * TIME_SCALE - self.last_heartbeat_sent >= HEARTBEAT_INTERVAL \
                             and len(self.unacked_requests) == 0:
                         self.send_regular_heartbeat([])
                     self.act_as_leader(msg)
@@ -266,7 +266,7 @@ class StateMachine:
 
         response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'term': self.current_term,
                     'type': 'append_response', 'MID': msg['MID'], 'prev_log_index': prev_log_index,
-                    'prev_log_term': prev_log_term, 'entries': msg['entries'], 'receive_time': msg['send_time'],
+                    'prev_log_term': prev_log_term, 'entries': msg['entries'], 'receive_time': time.time() * TIME_SCALE,
                     'last_log_index': len(self.log) - 1, 'accept_request': accept_request}
         sock.send(json.dumps(response))
 
@@ -425,8 +425,13 @@ class StateMachine:
             if msg['accept_request']:
                 # set the next index to send to be: the index of last entry appended + 1
                 self.next_index[msg['src']] = msg['last_log_index'] + 1  # TODO unsure
-                unacked_servers = self.unacked_requests[msg['MID']]
-                for m in list(unacked_servers):
+                try:
+                    unacked_msgs = self.unacked_requests[msg['MID']]
+                except KeyError:
+                    print("KEYERROR: " + str(self.id) + " " + msg['MID'])
+                    for mid in self.unacked_requests:
+                        print("IN MID: " + mid)
+                for m in list(unacked_msgs):
                     m_json = json.loads(m)
                     if m_json['dst'] == msg['src']:
                         self.unacked_requests[msg['MID']].remove(m)
@@ -460,7 +465,7 @@ class StateMachine:
             unacked_msgs = self.unacked_requests[mid]
             for m in list(unacked_msgs):
                 m_json = json.loads(m)
-                if time.time() - m_json['send_time'] > RTT_INTERVAL:
+                if time.time() * TIME_SCALE - m_json['send_time'] >= RTT_INTERVAL:
                     sock.send(m)
 
 
@@ -482,10 +487,11 @@ class StateMachine:
         #check that it's not a heartbeat
         if len(entries) > 0:
             self.unacked_requests[mid].add(json.dumps(append_entry_RPC))
+            print("ADDED " + str(self.id) + " " +  str(mid))
 
     def send_regular_heartbeat(self, entries):
         mid = str(uuid.UUID)
-        self.last_heartbeat_sent = time.time()
+        self.last_heartbeat_sent = time.time() * TIME_SCALE
         self.send_append_request(entries, mid)
 
 
