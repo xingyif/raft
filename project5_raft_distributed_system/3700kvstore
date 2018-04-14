@@ -92,7 +92,7 @@ class StateMachine:
                     self.act_as_leader(msg)
 
     def print_msg(self, msg, bool=False):
-        #bool = False
+        bool = False
         if bool:
             print(msg)
         return
@@ -298,11 +298,13 @@ class StateMachine:
                 (mid, command, term) = self.log[index]
                 self.print_msg("ADJUSTED index to %s with term %s" % (index, term), True)
                 self.send_append_response(msg, index, prev_term, False)
+                return
         except IndexError:
             (mid, command, term) = self.log[len(self.log) - 1]
             self.print_msg("REJECTED %s because length of log is %s"
                            % (msg['MID'], str(len(self.log))), True)
             self.send_append_response(msg, len(self.log) - 1, term, False)
+            return
         # ready to accept the AppendEntriesRPC request
         # delete all following entries after the current one
         # If an existing entry conflicts with a new one (same index
@@ -412,6 +414,7 @@ class StateMachine:
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
             self.unacked_requests[msg['MID']] = set()
+            self.print_msg("i %s CREATED %s" % (str(self.id), msg['MID']), True)
             self.send_append_request(entries, msg['MID'])
         elif msg['type'] == 'put':
             key = msg['key']
@@ -420,26 +423,24 @@ class StateMachine:
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
             self.unacked_requests[msg['MID']] = set()
+            self.print_msg("i %s CREATED %s" % (str(self.id), msg['MID']), True)
             self.send_append_request(entries, msg['MID'])
         elif msg['type'] == 'append_response':
             if msg['accept_request']:
                 # set the next index to send to be: the index of last entry appended + 1
                 self.next_index[msg['src']] = msg['last_log_index'] + 1  # TODO unsure
-                try:
-                    unacked_msgs = self.unacked_requests[msg['MID']]
-                except KeyError:
-                    print("KEYERROR: " + str(self.id) + " " + msg['MID'])
-                    for mid in self.unacked_requests:
-                        print("IN MID: " + mid)
+                unacked_msgs = self.unacked_requests[msg['MID']]
                 for m in list(unacked_msgs):
                     m_json = json.loads(m)
                     if m_json['dst'] == msg['src']:
                         self.unacked_requests[msg['MID']].remove(m)
+                        self.print_msg("i %s REMOVED %s request_accepted" % (str(self.id), m_json['MID']), True)
                         break
                 if len(self.unacked_requests[msg['MID']]) == minority:
                     self.commit_index += 1
                 if len(self.unacked_requests[msg['MID']]) == 0:
                     self.unacked_requests.pop(msg['MID'])
+                    self.print_msg("i %s POPPED %s from dict" % (str(self.id), msg['MID']), True)
             elif not msg['accept_request']:
                 self.print_msg("REJECTED " + msg['MID'], True)
                 self.next_index[msg['src']] = msg['prev_log_index']
@@ -454,6 +455,7 @@ class StateMachine:
                     m_json = json.loads(m)
                     if m_json['dst'] == msg['src']:
                         self.unacked_requests[msg['MID']].remove(m)
+                        self.print_msg("i %s REMOVED %s request_rejected" % (str(self.id), m_json['MID']), True)
                         break
                 self.append_one_server(temp_entries, msg['src'], msg['MID'])
             self.check_timeouts()
@@ -461,12 +463,23 @@ class StateMachine:
     def check_timeouts(self):
         global sock
 
+        #TODO this code is really, really messy
+        #It works, but I wish we had a cleaner way to check timeouts
+
         for mid in self.unacked_requests:
             unacked_msgs = self.unacked_requests[mid]
             for m in list(unacked_msgs):
                 m_json = json.loads(m)
                 if time.time() * TIME_SCALE - m_json['send_time'] >= RTT_INTERVAL:
-                    sock.send(m)
+                    cur_time = time.time() * TIME_SCALE
+                    #update time and dict
+                    m_json['send_time'] = cur_time
+                    new_m = json.dumps(m_json)
+                    self.unacked_requests[mid].remove(m)
+                    self.unacked_requests[mid].add(new_m)
+                    sock.send(new_m)
+                    self.print_msg("RESENDING " + m_json['MID'], True)
+                    return
 
 
     def send_append_request(self, entries, mid):
@@ -487,7 +500,7 @@ class StateMachine:
         #check that it's not a heartbeat
         if len(entries) > 0:
             self.unacked_requests[mid].add(json.dumps(append_entry_RPC))
-            print("ADDED " + str(self.id) + " " +  str(mid))
+            self.print_msg("i %s ADDED %s" % (str(self.id), str(mid)), True)
 
     def send_regular_heartbeat(self, entries):
         mid = str(uuid.UUID)
