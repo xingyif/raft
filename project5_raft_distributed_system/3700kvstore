@@ -92,7 +92,7 @@ class StateMachine:
                     self.act_as_leader(msg)
 
     def print_msg(self, msg, bool=False):
-        bool = False
+        #bool = False
         if bool:
             print(msg)
         return
@@ -207,6 +207,7 @@ class StateMachine:
         self.voted_for = None
         self.votes_count = 0
         self.send_regular_heartbeat([])
+        self.print_msg("i %s became leader" % self.id, True)
 
     '''
     starts election. Candidate increments term, votes for itself
@@ -301,8 +302,8 @@ class StateMachine:
                 return
         except IndexError:
             (mid, command, term) = self.log[len(self.log) - 1]
-            self.print_msg("REJECTED %s because length of log is %s"
-                           % (msg['MID'], str(len(self.log))), True)
+            self.print_msg("REJECTED %s because length of log is %s and prev_idx is %s"
+                           % (msg['MID'], str(len(self.log)), msg['prev_log_index']), True)
             self.send_append_response(msg, len(self.log) - 1, term, False)
             return
         # ready to accept the AppendEntriesRPC request
@@ -414,7 +415,7 @@ class StateMachine:
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
             self.unacked_requests[msg['MID']] = set()
-            self.print_msg("i %s CREATED %s" % (str(self.id), msg['MID']), True)
+            self.print_msg("i %s CREATED %s" % (str(self.id), msg['MID']))
             self.send_append_request(entries, msg['MID'])
         elif msg['type'] == 'put':
             key = msg['key']
@@ -423,7 +424,7 @@ class StateMachine:
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
             self.unacked_requests[msg['MID']] = set()
-            self.print_msg("i %s CREATED %s" % (str(self.id), msg['MID']), True)
+            self.print_msg("i %s CREATED %s" % (str(self.id), msg['MID']))
             self.send_append_request(entries, msg['MID'])
         elif msg['type'] == 'append_response':
             if msg['accept_request']:
@@ -434,16 +435,17 @@ class StateMachine:
                     m_json = json.loads(m)
                     if m_json['dst'] == msg['src']:
                         self.unacked_requests[msg['MID']].remove(m)
-                        self.print_msg("i %s REMOVED %s request_accepted" % (str(self.id), m_json['MID']), True)
+                        self.print_msg("i %s REMOVED %s request_accepted" % (str(self.id), m_json['MID']))
                         break
                 if len(self.unacked_requests[msg['MID']]) == minority:
                     self.commit_index += 1
                 if len(self.unacked_requests[msg['MID']]) == 0:
                     self.unacked_requests.pop(msg['MID'])
-                    self.print_msg("i %s POPPED %s from dict" % (str(self.id), msg['MID']), True)
+                    self.print_msg("i %s POPPED %s from dict" % (str(self.id), msg['MID']))
             elif not msg['accept_request']:
                 self.print_msg("REJECTED " + msg['MID'], True)
                 self.next_index[msg['src']] = msg['prev_log_index']
+                self.print_msg("RESENDING %s with prev_log_index %s" % (msg['MID'], msg['prev_log_index']), True)
                 temp_entries = []
                 temp_entries.append(self.log[self.next_index[msg['src']]])
                 # print("%s temp_entries %s" % (self.id, self.log[self.next_index[msg['src']]]))
@@ -455,7 +457,7 @@ class StateMachine:
                     m_json = json.loads(m)
                     if m_json['dst'] == msg['src']:
                         self.unacked_requests[msg['MID']].remove(m)
-                        self.print_msg("i %s REMOVED %s request_rejected" % (str(self.id), m_json['MID']), True)
+                        self.print_msg("i %s REMOVED %s request_rejected" % (str(self.id), m_json['MID']))
                         break
                 self.append_one_server(temp_entries, msg['src'], msg['MID'])
             self.check_timeouts()
@@ -478,7 +480,7 @@ class StateMachine:
                     self.unacked_requests[mid].remove(m)
                     self.unacked_requests[mid].add(new_m)
                     sock.send(new_m)
-                    self.print_msg("RESENDING " + m_json['MID'], True)
+                    self.print_msg("RESENDING " + m_json['MID'])
                     return
 
 
@@ -500,7 +502,7 @@ class StateMachine:
         #check that it's not a heartbeat
         if len(entries) > 0:
             self.unacked_requests[mid].add(json.dumps(append_entry_RPC))
-            self.print_msg("i %s ADDED %s" % (str(self.id), str(mid)), True)
+            self.print_msg("i %s ADDED %s" % (str(self.id), str(mid)))
 
     def send_regular_heartbeat(self, entries):
         mid = str(uuid.UUID)
