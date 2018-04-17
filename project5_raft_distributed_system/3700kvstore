@@ -64,6 +64,7 @@ class StateMachine:
         self.unacked_requests = {}
         #time the last heartbeat was sent
         self.last_heartbeat_sent = 0
+        self.num_requests = set()
 
 
     def run(self):
@@ -334,14 +335,14 @@ class StateMachine:
         for entry in msg['entries']:  # TODO swapped the if and for
             if entry not in self.log:
                 (mid, command, term) = entry
-                self.print_msg("APPENDING %s" % mid, True)
                 self.log.append(entry)
+                self.print_msg("APPENDING %s log length is %d" % (mid, len(self.log)), True)
         if msg['leader_commit'] > self.commit_index:
             leader_commit = msg['leader_commit']
             last_log_index = len(self.log) - 1
             temp_commit = min(leader_commit, last_log_index)
             self.print_msg("Committed %s leader_commit %s last_log_index %s temp_commit %s" %
-                      (msg['MID'], str(leader_commit), str(last_log_index), str(temp_commit)), True)
+                      (msg['MID'], str(leader_commit), str(last_log_index), str(temp_commit)))
             self.commit_index = min(msg['leader_commit'], last_log_index)
         if self.last_applied > len(self.log) - 1:
             self.last_applied = len(self.log) - 1
@@ -431,15 +432,9 @@ class StateMachine:
         # TODO should entry contain MID ?
         # TODO do i care about duplicate?
         entry = (mid, command, self.current_term)
-        if entry not in self.log:
-            self.log.append(entry)
-        else:
-            print("SOMETHING IS TERRIBLY WRONG!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        self.log.append(entry)
         return entry
 
-    # send entry4
-    # get failure back
-    # send entry3entry4 STILL USE MID FOR 4
     def act_as_leader(self, msg):
         N = len(self.other_server_ids) + 1
         majority = N / 2 + 1
@@ -451,7 +446,7 @@ class StateMachine:
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
             self.unacked_requests[msg['MID']] = set()
-            self.print_msg("[ACT_AS_LEADER] CREATED %s" % (msg['MID']), True)
+            self.print_msg("[ACT_AS_LEADER] CREATED %s" % (msg['MID']))
             self.send_append_request(entries, msg['MID'])
         elif msg['type'] == 'put':
             key = msg['key']
@@ -460,12 +455,14 @@ class StateMachine:
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
             self.unacked_requests[msg['MID']] = set()
-            self.print_msg("[ACT_AS_LEADER] CREATED %s with key %s and value %s" % (msg['MID'], key, value), True)
+            self.print_msg("[ACT_AS_LEADER] CREATED %s with key %s and value %s" % (msg['MID'], key, value))
             self.send_append_request(entries, msg['MID'])
         elif msg['type'] == 'append_response':
             if msg['accept_request']:
                 # set the next index to send to be: the index of last entry appended + 1
                 self.next_index[msg['src']] = msg['last_log_index'] + 1  # TODO unsure
+                self.print_msg("[ACT AS LEADER] Request %s accepted from %s, next_index set to %d"
+                               % (msg['MID'], msg['src'], self.next_index[msg['src']]), True)
                 unacked_msgs = self.unacked_requests[msg['MID']]
                 for m in list(unacked_msgs):
                     m_json = json.loads(m)
@@ -477,7 +474,7 @@ class StateMachine:
                 if len(self.unacked_requests[msg['MID']]) == minority:
                     self.commit_index += 1
                     self.print_msg("[ACT_AS_LEADER] COMMITTED %s commit_index %d" %
-                                   (msg['MID'], self.commit_index), True)
+                                   (msg['MID'], self.commit_index))
                     servers = []
                     for m in self.unacked_requests[msg['MID']]:
                         m_json = json.loads(m)
@@ -540,6 +537,9 @@ class StateMachine:
         prev_log_index = self.next_index[server_id] - 1
         (prev_mid, prev_command, prev_log_term) = self.log[prev_log_index]
         send_time = time.time() * TIME_SCALE
+        if len(entries) > 0:
+            self.print_msg("[APPEND_ONE] SENDING %s to %s log length is %d prev_log_idx %d"
+                           % (mid, server_id, len(self.log), prev_log_index), True)
         append_entry_RPC = {'src': self.id, 'dst': server_id, 'leader': self.id,
                             'type': 'append_request', 'MID': mid, 'term': self.current_term,
                             'entries': entries, 'leader_commit': self.commit_index, 'send_time': send_time,
