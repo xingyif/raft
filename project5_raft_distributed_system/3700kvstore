@@ -18,6 +18,7 @@ RAND_MIN = 150
 RAND_MAX = 300
 TIME_SCALE = 1000
 HEARTBEAT_INTERVAL = 100
+MESSAGE_INTERVAL =
 RTT_INTERVAL = 50
 
 # Connect to the network. All messages to/from other replicas and clients will
@@ -59,11 +60,11 @@ class StateMachine:
         self.election_timeout = random.uniform(RAND_MIN, RAND_MAX)
         self.start_election_time = 0
         self.key_value_store = {}
-        self.queued_client_requests = set()
         #MID -> list of server ids that haven't sent an accept_request back
         self.unacked_requests = {}
         #time the last heartbeat was sent
         self.last_heartbeat_sent = 0
+        self.last_message_appended = 0
         self.num_requests = set()
 
 
@@ -90,7 +91,7 @@ class StateMachine:
                     #TODO this if statement doesn't work
                     if time.time() * TIME_SCALE - self.last_heartbeat_sent >= HEARTBEAT_INTERVAL:
                         self.send_regular_heartbeat([])
-                    self.act_as_leader(msg)
+                    self.wait_to_send(msg)
 
     def print_msg(self, msg, bool=False):
         #bool = False
@@ -170,7 +171,7 @@ class StateMachine:
                 self.print_msg("[APPLY_COMMAND] Putting value %s in key %s for message %s" %
                                (command['value'], command['key'], mid))
             if self.state == 'leader':
-                self.print_msg("[APPLY COMMAND] %s is %s" % (mid, json.dumps(command)))
+                self.print_msg("[APPLY COMMAND] %s is %s" % (mid, json.dumps(command)), True)
                 if command['cmd'] == 'get':
                     value = self.key_value_store.get(command['key'], '')
                     response = {'src': self.id, 'dst': command['client_id'],
@@ -342,7 +343,7 @@ class StateMachine:
             last_log_index = len(self.log) - 1
             temp_commit = min(leader_commit, last_log_index)
             self.print_msg("Committed %s leader_commit %s last_log_index %s temp_commit %s" %
-                      (msg['MID'], str(leader_commit), str(last_log_index), str(temp_commit)))
+                      (msg['MID'], str(leader_commit), str(last_log_index), str(temp_commit)), True)
             self.commit_index = min(msg['leader_commit'], last_log_index)
         if self.last_applied > len(self.log) - 1:
             self.last_applied = len(self.log) - 1
@@ -435,12 +436,19 @@ class StateMachine:
         self.log.append(entry)
         return entry
 
+    def wait_to_send(self, msg):
+        if msg['type'] in ['get', 'put']:
+            while time.time() * TIME_SCALE - self.last_message_appended < MESSAGE_INTERVAL:
+                continue
+        self.act_as_leader(msg)
+
     def act_as_leader(self, msg):
         N = len(self.other_server_ids) + 1
         majority = N / 2 + 1
         minority = N - majority
         entries = []
         if msg['type'] == 'get':
+            self.last_message_appended = time.time() * TIME_SCALE
             key = msg['key']
             command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key})
             entry = self.append_new_log_entry(command, msg['MID'])
@@ -449,13 +457,14 @@ class StateMachine:
             self.print_msg("[ACT_AS_LEADER] CREATED %s" % (msg['MID']))
             self.send_append_request(entries, msg['MID'])
         elif msg['type'] == 'put':
+            self.last_message_appended = time.time() * TIME_SCALE
             key = msg['key']
             value = msg['value']
             command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key, 'value': value})
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
             self.unacked_requests[msg['MID']] = set()
-            self.print_msg("[ACT_AS_LEADER] CREATED %s with key %s and value %s" % (msg['MID'], key, value))
+            self.print_msg("[ACT_AS_LEADER] CREATED %s with key %s and value %s" % (msg['MID'], key, value), True)
             self.send_append_request(entries, msg['MID'])
         elif msg['type'] == 'append_response':
             if msg['accept_request']:
@@ -474,7 +483,7 @@ class StateMachine:
                 if len(self.unacked_requests[msg['MID']]) == minority:
                     self.commit_index += 1
                     self.print_msg("[ACT_AS_LEADER] COMMITTED %s commit_index %d" %
-                                   (msg['MID'], self.commit_index))
+                                   (msg['MID'], self.commit_index), True)
                     servers = []
                     for m in self.unacked_requests[msg['MID']]:
                         m_json = json.loads(m)
