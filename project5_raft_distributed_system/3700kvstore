@@ -27,14 +27,6 @@ SOCK_RECV_SIZE = 32768
 sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
 sock.connect(my_id)
 
-# TODO:
-# Our current problem is:
-# Leader dies
-# Fails/redirects sent for client messages 126, 127, 128, 129... (values are arbitrary)
-# New leader is elected
-# We get request to append client message 130 and it fails because it's a get for a value that was put in 127
-# We get request to append client message 127, which is now resent to us
-
 class StateMachine:
 
     def __init__(self, id, other_server_ids):
@@ -67,7 +59,7 @@ class StateMachine:
         self.election_timeout = random.uniform(RAND_MIN, RAND_MAX)
         self.start_election_time = 0
         self.key_value_store = {}
-        self.queued_client_requests = []
+        self.queued_client_requests = set()
         #MID -> list of server ids that haven't sent an accept_request back
         self.unacked_requests = {}
         #time the last heartbeat was sent
@@ -94,8 +86,8 @@ class StateMachine:
                 elif self.state == 'candidate':
                     self.act_as_candidate(msg)
                 elif self.state == 'leader':
-                    if time.time() * TIME_SCALE - self.last_heartbeat_sent >= HEARTBEAT_INTERVAL \
-                            and len(self.unacked_requests) == 0:
+                    #TODO this if statement doesn't work
+                    if time.time() * TIME_SCALE - self.last_heartbeat_sent >= HEARTBEAT_INTERVAL:
                         self.send_regular_heartbeat([])
                     self.act_as_leader(msg)
 
@@ -147,14 +139,16 @@ class StateMachine:
         if self.leader_id == 'FFFF':
             response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
                                   'type': 'fail', 'MID': msg['MID']}
-            self.print_msg("[CLIENT HANDLER] Responding FAIL to client %s" % msg['MID'], True)
+            self.print_msg("[CLIENT HANDLER] Responding FAIL to client %s" % msg['MID'])
+            #self.queued_client_requests.add(json.dumps(msg))
         else:
             response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
                                   'type': 'redirect', 'MID': msg['MID']}
-            self.print_msg("[CLIENT HANDLER] Responding REDIRECT to client %s" % msg['MID'], True)
+            #self.queued_client_requests.add(json.dumps(msg))
+            self.print_msg("[CLIENT HANDLER] Responding REDIRECT to client %s" % msg['MID'])
             if msg['type'] == 'put':
                 self.print_msg("[CLIENT_HANDLER] %s key %s and value %s"
-                               % (msg['MID'], msg['key'], msg['value']), True)
+                               % (msg['MID'], msg['key'], msg['value']))
         sock.send(json.dumps(response_to_client))
 
     '''
@@ -175,7 +169,7 @@ class StateMachine:
                 self.print_msg("[APPLY_COMMAND] Putting value %s in key %s for message %s" %
                                (command['value'], command['key'], mid))
             if self.state == 'leader':
-                self.print_msg("[APPLY COMMAND] %s is %s" % (mid, json.dumps(command)), True)
+                self.print_msg("[APPLY COMMAND] %s is %s" % (mid, json.dumps(command)))
                 if command['cmd'] == 'get':
                     value = self.key_value_store.get(command['key'], '')
                     response = {'src': self.id, 'dst': command['client_id'],
@@ -205,7 +199,6 @@ class StateMachine:
     '''
     become a candidate, start election
     '''
-
     def become_candidate(self):
         self.state = 'candidate'
         self.voted_for = None
@@ -221,13 +214,14 @@ class StateMachine:
         self.voted_for = None
         self.votes_count = 0
         self.commit_index = len(self.log) - 1
+        self.apply_command_and_reply_client()
         self.send_regular_heartbeat([])
+        #self.handle_queue()
         self.print_msg("[BECOME LEADER]")
 
     '''
     starts election. Candidate increments term, votes for itself
     '''
-
     def start_election(self):
         global TIME_SCALE, RAND_MIN, RAND_MAX
         # increment term at start of each election
@@ -242,7 +236,11 @@ class StateMachine:
         self.start_election_time = time.time() * TIME_SCALE
         # send out request vote RPCs
         self.send_vote_requests()
-        # process the results
+
+    def handle_queue(self):
+        for m in list(self.queued_client_requests):
+            self.act_as_leader(json.loads(m))
+        self.queued_client_requests = set()
 
     def send_vote_requests(self):
         global sock
@@ -295,7 +293,8 @@ class StateMachine:
     '''
     def append_handler(self, msg):
         if len(msg['entries']) == 0:
-            # TODO maybe heartbeats should respond?
+            #not a leader, don't need this
+            self.queued_client_requests = set()
             self.become_follower(msg['term'], msg['leader'])
             # update commit index too
             if msg['leader_commit'] > self.commit_index:
@@ -334,9 +333,16 @@ class StateMachine:
         self.log = self.log[:keep_index]
         for entry in msg['entries']:  # TODO swapped the if and for
             if entry not in self.log:
+                (mid, command, term) = entry
+                self.print_msg("APPENDING %s" % mid, True)
                 self.log.append(entry)
         if msg['leader_commit'] > self.commit_index:
-            self.commit_index = min(msg['leader_commit'], len(self.log) - 1)
+            leader_commit = msg['leader_commit']
+            last_log_index = len(self.log) - 1
+            temp_commit = min(leader_commit, last_log_index)
+            self.print_msg("Committed %s leader_commit %s last_log_index %s temp_commit %s" %
+                      (msg['MID'], str(leader_commit), str(last_log_index), str(temp_commit)), True)
+            self.commit_index = min(msg['leader_commit'], last_log_index)
         if self.last_applied > len(self.log) - 1:
             self.last_applied = len(self.log) - 1
         if self.commit_index > len(self.log) - 1:
@@ -407,7 +413,7 @@ class StateMachine:
             elif msg['type'] == 'vote_response':
                 if msg['vote_granted']:
                     # collect vote
-                    self.print_msg("RECEIVED vote from %s" % (msg['src']), True)
+                    self.print_msg("RECEIVED vote from %s" % (msg['src']))
                     self.votes_count += 1
                     if self.votes_count >= majority_votes:
                         self.become_leader()
@@ -425,7 +431,10 @@ class StateMachine:
         # TODO should entry contain MID ?
         # TODO do i care about duplicate?
         entry = (mid, command, self.current_term)
-        self.log.append(entry)
+        if entry not in self.log:
+            self.log.append(entry)
+        else:
+            print("SOMETHING IS TERRIBLY WRONG!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         return entry
 
     # send entry4
@@ -462,14 +471,21 @@ class StateMachine:
                     m_json = json.loads(m)
                     if m_json['dst'] == msg['src']:
                         self.unacked_requests[msg['MID']].remove(m)
-                        self.print_msg("[ACT_AS_LEADER] REMOVED %s request_accepted" % (m_json['MID']))
+                        self.print_msg("[ACT_AS_LEADER] REMOVED %s request_accepted server %s"
+                                       % (m_json['MID'], m_json['dst']))
                         break
                 if len(self.unacked_requests[msg['MID']]) == minority:
-                    self.print_msg("[ACT_AS_LEADER] COMMITTED %s" % (m_json['MID']), True)
                     self.commit_index += 1
+                    self.print_msg("[ACT_AS_LEADER] COMMITTED %s commit_index %d" %
+                                   (msg['MID'], self.commit_index), True)
+                    servers = []
+                    for m in self.unacked_requests[msg['MID']]:
+                        m_json = json.loads(m)
+                        servers.append(m_json['dst'])
+                    self.print_msg("NOT committed on %s" % (str(servers)))
                 if len(self.unacked_requests[msg['MID']]) == 0:
                     self.unacked_requests.pop(msg['MID'])
-                    self.print_msg("[ACT_AS_LEADER] POPPED %s from dict" % (msg['MID']), True)
+                    self.print_msg("[ACT_AS_LEADER] POPPED %s from dict" % (msg['MID']))
             elif not msg['accept_request']:
                 self.print_msg("[ACT_AS_LEADER] REJECTED %s at term %s" % (msg['MID'], self.current_term))
                 self.next_index[msg['src']] = msg['prev_log_index']
@@ -510,7 +526,7 @@ class StateMachine:
                     self.unacked_requests[mid].remove(m)
                     self.unacked_requests[mid].add(new_m)
                     sock.send(new_m)
-                    self.print_msg("[CHECK_TIMEOUTS] RESENDING " + m_json['MID'], True)
+                    self.print_msg("[CHECK_TIMEOUTS] RESENDING " + m_json['MID'])
                     return
 
 
