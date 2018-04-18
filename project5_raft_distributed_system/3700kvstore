@@ -18,7 +18,7 @@ RAND_MIN = 150
 RAND_MAX = 300
 TIME_SCALE = 1000
 HEARTBEAT_INTERVAL = 100
-MESSAGE_INTERVAL =
+MESSAGE_INTERVAL = 15
 RTT_INTERVAL = 50
 
 # Connect to the network. All messages to/from other replicas and clients will
@@ -285,71 +285,49 @@ class StateMachine:
                     'type': 'append_response', 'MID': msg['MID'], 'prev_log_index': prev_log_index,
                     'prev_log_term': prev_log_term, 'entries': msg['entries'], 'receive_time': time.time() * TIME_SCALE,
                     'last_log_index': len(self.log) - 1, 'accept_request': accept_request}
-        if not accept_request:
-            self.print_msg("[SEND_APPEND_RESPONSE] prev_log_index: %d prev_log_term: %d" %
-                           (prev_log_index, prev_log_term))
         sock.send(json.dumps(response))
+        response['entries'] = []
+        self.print_msg(response, True)
 
     '''
     For followers and candidates, handle append entry requests 
     '''
     def append_handler(self, msg):
-        if len(msg['entries']) == 0:
-            #not a leader, don't need this
-            self.queued_client_requests = set()
+        #heartbeat
+        if len(msg['entries'] == 0):
             self.become_follower(msg['term'], msg['leader'])
-            # update commit index too
+            #update commit index too
             if msg['leader_commit'] > self.commit_index:
                 self.commit_index = min(msg['leader_commit'], len(self.log) - 1)
-            return
-        # TODO this could be a problem: in the case of a partition 3 servers | 2 servers
-        # the 3 servers will have a longer log because they are able to process client requests
-        # the 2 servers might have a higher term, because they might need to elect new leader
-        # when the partition is gone, the 2 servers will always reject the new entries because of their higher term
         if self.current_term > msg['term']:
-            self.print_msg("[APPEND_HANDLER] REJECTED %s because it has term %s" % (msg['MID'], msg['term']))
             self.send_append_response(msg, msg['prev_log_index'], msg['prev_log_term'], False)
-            return
         try:
             (prev_mid, prev_command, prev_term) = self.log[msg['prev_log_index']]
             if prev_term != msg['prev_log_term']:
                 index = self.find_first_term_instance(prev_term, msg['prev_log_index'])
-                self.print_msg("[APPEND_HANDLER] REJECTED %s because my prev_term %s doesn't match their's %s at index %s"
-                               % (msg['MID'], prev_term, msg['prev_log_term'], msg['prev_log_index']))
-                (mid, command, term) = self.log[index]
-                self.print_msg("[APPEND_HANDLER] ADJUSTED index to %s with term %s" % (index, term))
+                #term of the conflcting entry and first index stored for that term
                 self.send_append_response(msg, index, prev_term, False)
                 return
         except IndexError:
             (mid, command, term) = self.log[len(self.log) - 1]
-            self.print_msg("[APPEND_HANDLER] REJECTED %s because length of log is %s and prev_idx is %s"
-                           % (msg['MID'], str(len(self.log)), msg['prev_log_index']))
-            self.send_append_response(msg, len(self.log) - 1, term, False)
+            #TODO issue may be here
+            self.send_append_response(msg, len(self.log), term, False)
             return
-        # ready to accept the AppendEntriesRPC request
-        # delete all following entries after the current one
-        # If an existing entry conflicts with a new one (same index
-        # but different terms), delete the ***existing*** entry and all that
-        # follow it
+
         keep_index = msg['prev_log_index'] + 1
         self.log = self.log[:keep_index]
-        for entry in msg['entries']:  # TODO swapped the if and for
+        for entry in msg['entries']:
             if entry not in self.log:
-                (mid, command, term) = entry
                 self.log.append(entry)
-                self.print_msg("APPENDING %s log length is %d" % (mid, len(self.log)), True)
         if msg['leader_commit'] > self.commit_index:
-            leader_commit = msg['leader_commit']
-            last_log_index = len(self.log) - 1
-            temp_commit = min(leader_commit, last_log_index)
-            self.print_msg("Committed %s leader_commit %s last_log_index %s temp_commit %s" %
-                      (msg['MID'], str(leader_commit), str(last_log_index), str(temp_commit)), True)
-            self.commit_index = min(msg['leader_commit'], last_log_index)
+            self.commit_index = min(msg['leader_commit'], len(self.log) - 1)
         if self.last_applied > len(self.log) - 1:
             self.last_applied = len(self.log) - 1
         if self.commit_index > len(self.log) - 1:
             self.commit_index = len(self.log) - 1
         self.send_append_response(msg, msg['prev_log_index'], msg['prev_log_term'], True)
+
+
 
     def act_as_follower(self, msg):
         # have we timed out
@@ -454,7 +432,7 @@ class StateMachine:
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
             self.unacked_requests[msg['MID']] = set()
-            self.print_msg("[ACT_AS_LEADER] CREATED %s" % (msg['MID']))
+            self.print_msg("[ACT_AS_LEADER] CREATED %s" % (msg['MID']), True)
             self.send_append_request(entries, msg['MID'])
         elif msg['type'] == 'put':
             self.last_message_appended = time.time() * TIME_SCALE
@@ -468,50 +446,35 @@ class StateMachine:
             self.send_append_request(entries, msg['MID'])
         elif msg['type'] == 'append_response':
             if msg['accept_request']:
-                # set the next index to send to be: the index of last entry appended + 1
-                self.next_index[msg['src']] = msg['last_log_index'] + 1  # TODO unsure
-                self.print_msg("[ACT AS LEADER] Request %s accepted from %s, next_index set to %d"
-                               % (msg['MID'], msg['src'], self.next_index[msg['src']]), True)
+                self.next_index[msg['src']] = msg['last_log_index'] + 1
                 unacked_msgs = self.unacked_requests[msg['MID']]
                 for m in list(unacked_msgs):
                     m_json = json.loads(m)
                     if m_json['dst'] == msg['src']:
                         self.unacked_requests[msg['MID']].remove(m)
-                        self.print_msg("[ACT_AS_LEADER] REMOVED %s request_accepted server %s"
-                                       % (m_json['MID'], m_json['dst']))
                         break
                 if len(self.unacked_requests[msg['MID']]) == minority:
+                    self.print_msg("Commited %s" % msg['MID'], True)
                     self.commit_index += 1
-                    self.print_msg("[ACT_AS_LEADER] COMMITTED %s commit_index %d" %
-                                   (msg['MID'], self.commit_index), True)
-                    servers = []
-                    for m in self.unacked_requests[msg['MID']]:
-                        m_json = json.loads(m)
-                        servers.append(m_json['dst'])
-                    self.print_msg("NOT committed on %s" % (str(servers)))
                 if len(self.unacked_requests[msg['MID']]) == 0:
                     self.unacked_requests.pop(msg['MID'])
-                    self.print_msg("[ACT_AS_LEADER] POPPED %s from dict" % (msg['MID']))
             elif not msg['accept_request']:
-                self.print_msg("[ACT_AS_LEADER] REJECTED %s at term %s" % (msg['MID'], self.current_term))
+                #index with no conflict
+                #come back to this
+                # set new entries
                 self.next_index[msg['src']] = msg['prev_log_index']
-                self.print_msg("[ACT_AS_LEADER] RESENDING %s with prev_log_index %s"
-                               % (msg['MID'], str(msg['prev_log_index'] - 1)))
-                temp_entries = []
-                temp_entries.append(self.log[self.next_index[msg['src']]])
-                # print("%s temp_entries %s" % (self.id, self.log[self.next_index[msg['src']]]))
-                for entry in msg['entries']:
-                    temp_entries.append(entry)  # TODO care about prev_term and prev_idx
-
+                #temp_entries = []
+                #temp_entries.append(self.log[self.next_index[msg['src']]])
                 unacked_servers = self.unacked_requests[msg['MID']]
                 for m in list(unacked_servers):
                     m_json = json.loads(m)
                     if m_json['dst'] == msg['src']:
                         self.unacked_requests[msg['MID']].remove(m)
-                        self.print_msg("[ACT_AS_LEADER} REMOVED %s request_rejected" % (m_json['MID']))
                         break
+                temp_entries = []
+                temp_entries.append(self.log[self.next_index[msg['src']]])
                 self.append_one_server(temp_entries, msg['src'], msg['MID'])
-            self.check_timeouts()
+        self.check_timeouts()
 
     def check_timeouts(self):
         global sock
@@ -543,12 +506,28 @@ class StateMachine:
     def append_one_server(self, entries, server_id, mid):
         global sock, TIME_SCALE
 
+        #the next index to send, minus 1
         prev_log_index = self.next_index[server_id] - 1
         (prev_mid, prev_command, prev_log_term) = self.log[prev_log_index]
         send_time = time.time() * TIME_SCALE
+        #L: 1 2 3 4 5 6 7
+        #F: 1 2 3 4 5 6
+        #prev_log_index = 6
+        #entries = [7]
+
+        # L: 1 2 3 4 5 6 7
+        # F: 1 2 3 4
+        # prev_log_index = 4
+        # entries = [5]
         if len(entries) > 0:
-            self.print_msg("[APPEND_ONE] SENDING %s to %s log length is %d prev_log_idx %d"
-                           % (mid, server_id, len(self.log), prev_log_index), True)
+            #we already have the entry at next_index[server_id]
+            index = self.next_index[server_id] + 1
+            last_log_index = len(self.log) - 1
+            while index <= last_log_index:
+                entries.append(self.log[index])
+                index += 1
+            self.print_msg("[APPEND_ONE] SENDING %s to %s with %d entries log length is %d prev_log_idx %d"
+                           % (mid, server_id, len(entries), len(self.log), prev_log_index), True)
         append_entry_RPC = {'src': self.id, 'dst': server_id, 'leader': self.id,
                             'type': 'append_request', 'MID': mid, 'term': self.current_term,
                             'entries': entries, 'leader_commit': self.commit_index, 'send_time': send_time,
