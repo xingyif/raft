@@ -2,11 +2,15 @@
 
 import time
 import uuid
-import sys
-import socket
-import json
+import sys, socket, select, json
 import random
 import threading
+
+#still works without the queue for pre-election requests
+#doesn't work with changing election timeouts (and changing heartbeats to match)
+#sending append request after committing breaks everything
+#sending append request but not waiting for majority (commented out below) passes 10 (usually 11) tests conistently
+#these tests include the unreliable tests
 
 # Server ID number
 my_id = sys.argv[1]
@@ -17,9 +21,7 @@ replica_ids = sys.argv[2:]
 RAND_MIN = 150
 RAND_MAX = 300
 TIME_SCALE = 1000
-HEARTBEAT_INTERVAL = 100
-MESSAGE_INTERVAL = 15
-RTT_INTERVAL = 50
+HEARTBEAT_INTERVAL = 0.1
 
 # Connect to the network. All messages to/from other replicas and clients will
 # occur over this socket
@@ -27,6 +29,7 @@ SOCK_RECV_SIZE = 32768
 
 sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
 sock.connect(my_id)
+
 
 class StateMachine:
 
@@ -60,17 +63,15 @@ class StateMachine:
         self.election_timeout = random.uniform(RAND_MIN, RAND_MAX)
         self.start_election_time = 0
         self.key_value_store = {}
-        #MID -> list of server ids that haven't sent an accept_request back
-        self.unacked_requests = {}
-        #time the last heartbeat was sent
-        self.last_heartbeat_sent = 0
-        self.last_message_appended = 0
-        self.num_requests = set()
-
+        self.queued_client_requests = []
+        # leader checking how many followers have appended
+        # MID, num_of_followers_appended (set(id))
+        self.number_appended = {}
+        # MID, response
+        self.responses_to_client = {}
 
     def run(self):
         global sock, SOCK_RECV_SIZE
-
         while True:
             raw_msg = sock.recv(SOCK_RECV_SIZE)
             # received nothing
@@ -88,21 +89,19 @@ class StateMachine:
                 elif self.state == 'candidate':
                     self.act_as_candidate(msg)
                 elif self.state == 'leader':
-                    #TODO this if statement doesn't work
-                    if time.time() * TIME_SCALE - self.last_heartbeat_sent >= HEARTBEAT_INTERVAL:
-                        self.send_regular_heartbeat([])
-                    self.wait_to_send(msg)
+                    self.act_as_leader(msg)
 
     def print_msg(self, msg, bool=False):
-        #bool = False
+        # bool = False
         if bool:
-            print("[%s] [%s] [%s] [term: %s] %s" % (str(time.time()), self.id, self.state, self.current_term, msg))
+            print(msg)
         return
 
     '''
     volatile state on leader
     upon election, leader initializes these values to its last log index + 1
     '''
+
     def init_next_idx_to_send(self):
         next_idx_to_send = {}
         if self.state == 'leader':
@@ -114,6 +113,7 @@ class StateMachine:
     for each server, index of highest log entry known to be replicated
     always initialize to 0
     '''
+
     def init_match_idxs(self):
         match_index = {}
         if self.state == 'leader':
@@ -123,70 +123,76 @@ class StateMachine:
 
     '''
     all servers:
-    if RPC request or response contains term given_term > current_term:
-    set current_term = given_term, convert to follower
+    if RPC request or response contains term T > current_term:
+    set current_term = T, convert to follower
     return True if becomes follower
     '''
-    def check_terms(self, given_term, leader):
-        if given_term > self.current_term:
-            self.print_msg("[CHECK_TERMS] becoming follower")
-            self.become_follower(given_term, leader)
+
+    def check_terms(self, T, leader):
+        if T > self.current_term:
+            self.become_follower(T, leader)
 
     '''
     follower respond redirect when got client messages, or queue up messages if leader is unknown
     '''
+
     def client_handler(self, msg):
         global sock
 
         if self.leader_id == 'FFFF':
-            response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
-                                  'type': 'fail', 'MID': msg['MID']}
-            self.print_msg("[CLIENT HANDLER] Responding FAIL to client %s" % msg['MID'])
-            #self.queued_client_requests.add(json.dumps(msg))
+            #self.queued_client_requests.append(msg)
+            response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'fail',
+                                  'MID': msg['MID']}
         else:
+            '''
+            for m in list(self.queued_client_requests):
+                response_prev_requests_to_client = {'src': self.id, "dst": m['src'], 'leader': self.leader_id,
+                                                    'type': 'redirect', 'MID': m['MID']}
+                sock.send(json.dumps(response_prev_requests_to_client))
+                self.queued_client_requests.remove(m)
+            '''
             response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
                                   'type': 'redirect', 'MID': msg['MID']}
-            #self.queued_client_requests.add(json.dumps(msg))
-            self.print_msg("[CLIENT HANDLER] Responding REDIRECT to client %s" % msg['MID'])
-            if msg['type'] == 'put':
-                self.print_msg("[CLIENT_HANDLER] %s key %s and value %s"
-                               % (msg['MID'], msg['key'], msg['value']))
         sock.send(json.dumps(response_to_client))
 
     '''
-    For all servers: commits and applies the commands to StateMachine
-    For leader: send clients all queued up responses
+        For all servers: commits and applies the commands to StateMachine
+        For leader: send clients all queued up responses
     '''
+
     def apply_command_and_reply_client(self):
         global sock
 
-        while self.commit_index > self.last_applied:
+        if self.commit_index > self.last_applied:
             self.last_applied += 1
-            self.print_msg("[APPLY_COMMAND] last_applied: %d, commit_index: %d, log length: %d" %
-                           (self.last_applied, self.commit_index, len(self.log)))
+            # print("LENGTH: " + str(len(self.log)) + "LAST_APPLIED: " + str(self.last_applied) + "COMMIT: " + str(self.commit_index))
+            # print("LOG: " + str(self.log[self.last_applied]) + "LEN: " + str(len(self.log[self.last_applied])))
             (mid, command, term) = self.log[self.last_applied]
             command = json.loads(command)
             if command['cmd'] == 'put':
                 self.key_value_store[command['key']] = command['value']
-                self.print_msg("[APPLY_COMMAND] Putting value %s in key %s for message %s" %
-                               (command['value'], command['key'], mid))
+            elif command['cmd'] == 'get':
+                value = self.key_value_store.get(command['key'], '')
             if self.state == 'leader':
-                self.print_msg("[APPLY COMMAND] %s is %s" % (mid, json.dumps(command)), True)
+                # TODO probably don't need to store responses in dict, just send to client
                 if command['cmd'] == 'get':
                     value = self.key_value_store.get(command['key'], '')
-                    response = {'src': self.id, 'dst': command['client_id'],
-                                'leader': self.id, 'type': 'ok',
-                                'MID': mid, 'value': value}
+                    self.responses_to_client[mid] = {'src': self.id, 'dst': command['client_id'],
+                                                     'leader': self.id, 'type': 'ok',
+                                                     'MID': mid, 'value': value}
                 elif command['cmd'] == 'put':
-                    response = {'src': self.id, 'dst': command['client_id'],
-                                'leader': self.id, 'type': 'ok',
-                                'MID': mid}
+                    self.responses_to_client[mid] = {'src': self.id, 'dst': command['client_id'],
+                                                     'leader': self.id, 'type': 'ok',
+                                                     'MID': mid}
+                response = self.responses_to_client[mid]  # TODO should i remove it?
+                self.print_msg(json.dumps(response))
                 sock.send(json.dumps(response))
 
     '''
     become a follower
     update the term, RPC time, and leader
     '''
+
     def become_follower(self, new_term, new_leader):
         global TIME_SCALE
 
@@ -196,16 +202,15 @@ class StateMachine:
         self.voted_for = None
         self.votes_count = 0
         self.leader_id = new_leader
-        self.print_msg("[BECOME FOLLOWER]")
 
     '''
     become a candidate, start election
     '''
+
     def become_candidate(self):
         self.state = 'candidate'
         self.voted_for = None
         self.votes_count = 0
-        self.print_msg("[BECOME CANDIDATE]")
         self.start_election()
 
     def become_leader(self):
@@ -215,15 +220,13 @@ class StateMachine:
         self.leader_id = self.id
         self.voted_for = None
         self.votes_count = 0
-        self.commit_index = len(self.log) - 1
-        self.apply_command_and_reply_client()
-        self.send_regular_heartbeat([])
-        #self.handle_queue()
-        self.print_msg("[BECOME LEADER]")
+        entries = []
+        self.send_regular_heartbeat(entries)
 
     '''
     starts election. Candidate increments term, votes for itself
     '''
+
     def start_election(self):
         global TIME_SCALE, RAND_MIN, RAND_MAX
         # increment term at start of each election
@@ -238,11 +241,8 @@ class StateMachine:
         self.start_election_time = time.time() * TIME_SCALE
         # send out request vote RPCs
         self.send_vote_requests()
-
-    def handle_queue(self):
-        for m in list(self.queued_client_requests):
-            self.act_as_leader(json.loads(m))
-        self.queued_client_requests = set()
+        # process the results
+        # self.process_vote_results(start_election_time)
 
     def send_vote_requests(self):
         global sock
@@ -262,74 +262,54 @@ class StateMachine:
         vote_response = {'src': self.id, 'dst': msg['src'], 'leader': self.leader_id,
                          'type': 'vote_response', 'MID': msg['MID'], 'term': term,
                          'vote_granted': vote_granted}
-        self.print_msg("[SEND_VOTE_RESPONSE] vote_granted: %s" % str(vote_granted))
         sock.send(json.dumps(vote_response))
 
     '''
-    finds first instance of term in this log
+        For followers and candidates, handle append entry requests 
     '''
-    def find_first_term_instance(self, term, start_index):
-        for i in range(start_index, 0, -1):
-            (mid, command, cur_term) = self.log[i]
-            if cur_term < term:
-                return i + 1
-        return 1
 
-    '''
-    sends append response with given values
-    '''
-    def send_append_response(self, msg, prev_log_index, prev_log_term, accept_request):
-        global sock
-
-        response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'term': self.current_term,
-                    'type': 'append_response', 'MID': msg['MID'], 'prev_log_index': prev_log_index,
-                    'prev_log_term': prev_log_term, 'entries': msg['entries'], 'receive_time': time.time() * TIME_SCALE,
-                    'last_log_index': len(self.log) - 1, 'accept_request': accept_request}
-        sock.send(json.dumps(response))
-        response['entries'] = []
-        self.print_msg(response, True)
-
-    '''
-    For followers and candidates, handle append entry requests 
-    '''
     def append_handler(self, msg):
-        #heartbeat
-        if len(msg['entries'] == 0):
+        response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'term': self.current_term,
+                    'type': 'append_response', 'MID': msg['MID'], 'prev_log_index': msg['prev_log_index'],
+                    'prev_log_term': msg['prev_log_term'], 'entries': msg['entries'], 'accept_request': False}
+
+        if len(msg['entries']) == 0:
+            # TODO maybe heartbeats should respond?
             self.become_follower(msg['term'], msg['leader'])
-            #update commit index too
+            return
+        else:
+            if self.current_term > msg['term']:
+                sock.send(json.dumps(response))
+                return
+            try:
+                # print("LENGTH: " + str(self.log[msg['prev_log_index']]))
+                (prev_mid, prev_command, prev_term) = self.log[msg['prev_log_index']]
+                if prev_term != msg['prev_log_term']:
+                    sock.send(json.dumps(response))
+                    return
+            except IndexError:
+                sock.send(json.dumps(response))
+                return
+            # ready to accept the AppendEntriesRPC request
+            response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'term': self.current_term,
+                        'type': 'append_response', 'MID': msg['MID'], 'prev_log_index': msg['prev_log_index'],
+                        'prev_log_term': msg['prev_log_term'], 'entries': msg['entries'], 'accept_request': True}
+            # delete all following entries after the current one
+            # If an existing entry conflicts with a new one (same index
+            # but different terms), delete the ***existing*** entry and all that
+            # follow it
+            if prev_term != msg['prev_log_term']:  # TODO not so sure about the if
+                keep_index = msg['prev_log_index']  # TODO +1 ?
+                self.log = self.log[:keep_index]
+            for entry in msg['entries']:  # TODO swapped the if and for
+                if entry not in self.log:
+                    self.log.append(entry)
             if msg['leader_commit'] > self.commit_index:
                 self.commit_index = min(msg['leader_commit'], len(self.log) - 1)
-        if self.current_term > msg['term']:
-            self.send_append_response(msg, msg['prev_log_index'], msg['prev_log_term'], False)
-        try:
-            (prev_mid, prev_command, prev_term) = self.log[msg['prev_log_index']]
-            if prev_term != msg['prev_log_term']:
-                index = self.find_first_term_instance(prev_term, msg['prev_log_index'])
-                #term of the conflcting entry and first index stored for that term
-                self.send_append_response(msg, index, prev_term, False)
-                return
-        except IndexError:
-            (mid, command, term) = self.log[len(self.log) - 1]
-            #TODO issue may be here
-            self.send_append_response(msg, len(self.log), term, False)
-            return
-
-        keep_index = msg['prev_log_index'] + 1
-        self.log = self.log[:keep_index]
-        for entry in msg['entries']:
-            if entry not in self.log:
-                self.log.append(entry)
-        if msg['leader_commit'] > self.commit_index:
-            self.commit_index = min(msg['leader_commit'], len(self.log) - 1)
-        if self.last_applied > len(self.log) - 1:
-            self.last_applied = len(self.log) - 1
-        if self.commit_index > len(self.log) - 1:
-            self.commit_index = len(self.log) - 1
-        self.send_append_response(msg, msg['prev_log_index'], msg['prev_log_term'], True)
-
-
+            sock.send(json.dumps(response))  # TODO this was in for loop
 
     def act_as_follower(self, msg):
+
         # have we timed out
         if time.time() * TIME_SCALE - self.last_RPC_time >= self.election_timeout:
             # TODO We'll talk about this
@@ -351,16 +331,9 @@ class StateMachine:
             elif self.voted_for is None or self.voted_for == msg['src']:
                 last_log_index = len(self.log) - 1
                 (mid, command, last_log_term) = self.log[last_log_index]
-                #if the logs have last entries with different terms, the log with the later term is more up to date
-                #if they have the same term, the longer log is more up to date
-                if (last_log_term < msg['last_log_term']) \
-                        or (last_log_term == msg['last_log_term'] and last_log_index <= msg['last_log_index']):
-                    self.print_msg("candidate's %s last term is %s and mine %s is %s" %
-                                   (msg['src'], msg['last_log_term'], self.id, last_log_term))
-                    self.print_msg("candidate's %s last index is %s and mine %s is %s" %
-                                   (msg['src'], msg['last_log_index'], self.id, last_log_index))
+                if last_log_index <= msg['last_log_index'] and last_log_term <= msg['last_log_term']:
                     self.voted_for = msg['src']
-                    self.send_vote_response(msg, self.current_term, True)
+                    self.send_vote_response(msg, msg['term'], True)
                 else:
                     self.send_vote_response(msg, self.current_term, False)
             else:
@@ -372,7 +345,9 @@ class StateMachine:
     if tie, timeout and restart election
     if failed, become follower
     '''
+
     def act_as_candidate(self, msg):
+
         N = len(self.other_server_ids)
         majority_votes = N / 2 + 1
 
@@ -393,7 +368,6 @@ class StateMachine:
             elif msg['type'] == 'vote_response':
                 if msg['vote_granted']:
                     # collect vote
-                    self.print_msg("RECEIVED vote from %s" % (msg['src']))
                     self.votes_count += 1
                     if self.votes_count >= majority_votes:
                         self.become_leader()
@@ -407,141 +381,93 @@ class StateMachine:
     '''
     For leader, appends new command to its log as a new entry
     '''
+
     def append_new_log_entry(self, command, mid):
         # TODO should entry contain MID ?
         # TODO do i care about duplicate?
         entry = (mid, command, self.current_term)
         self.log.append(entry)
+        value = self.number_appended[mid]
+        self.number_appended[mid] = value + 1
         return entry
 
-    def wait_to_send(self, msg):
-        if msg['type'] in ['get', 'put']:
-            while time.time() * TIME_SCALE - self.last_message_appended < MESSAGE_INTERVAL:
-                continue
-        self.act_as_leader(msg)
+    # send entry4
+    # get failure back
+    # send entry3entry4 STILL USE MID FOR 4
 
     def act_as_leader(self, msg):
         N = len(self.other_server_ids) + 1
         majority = N / 2 + 1
-        minority = N - majority
         entries = []
         if msg['type'] == 'get':
-            self.last_message_appended = time.time() * TIME_SCALE
             key = msg['key']
+            value = self.key_value_store.get(key, '')
+            self.number_appended[msg['MID']] = 0
+            # TODO response to client after majority?
+            # self.responses_to_client[msg['MID']] = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
+            #                                       'type': 'ok', 'MID': msg['MID'], 'value': value}
             command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key})
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
-            self.unacked_requests[msg['MID']] = set()
-            self.print_msg("[ACT_AS_LEADER] CREATED %s" % (msg['MID']), True)
             self.send_append_request(entries, msg['MID'])
+            self.commit_index += 1
         elif msg['type'] == 'put':
-            self.last_message_appended = time.time() * TIME_SCALE
             key = msg['key']
             value = msg['value']
+            self.number_appended[msg['MID']] = 0
+            # self.responses_to_client[msg['MID']] = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
+            #                                        'type': 'ok', 'MID': msg['MID']}
             command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key, 'value': value})
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
-            self.unacked_requests[msg['MID']] = set()
-            self.print_msg("[ACT_AS_LEADER] CREATED %s with key %s and value %s" % (msg['MID'], key, value), True)
             self.send_append_request(entries, msg['MID'])
+            self.commit_index += 1
         elif msg['type'] == 'append_response':
+            '''
             if msg['accept_request']:
-                self.next_index[msg['src']] = msg['last_log_index'] + 1
-                unacked_msgs = self.unacked_requests[msg['MID']]
-                for m in list(unacked_msgs):
-                    m_json = json.loads(m)
-                    if m_json['dst'] == msg['src']:
-                        self.unacked_requests[msg['MID']].remove(m)
-                        break
-                if len(self.unacked_requests[msg['MID']]) == minority:
-                    self.print_msg("Commited %s" % msg['MID'], True)
+                value = self.number_appended[msg['MID']]
+                # someone's successfully appended it so we'll increment this
+                self.number_appended[msg['MID']] = value + 1
+                entries_appended = msg['entries']
+                last_entry_idx = len(entries_appended) - 1
+                last_entry_appended = entries_appended[last_entry_idx]
+                # set the next index to send to be: the index of last entry appended + 1
+                self.next_index[msg['src']] = len(self.log)  # TODO unsure
+                if self.number_appended[msg['MID']] >= majority:
                     self.commit_index += 1
-                if len(self.unacked_requests[msg['MID']]) == 0:
-                    self.unacked_requests.pop(msg['MID'])
-            elif not msg['accept_request']:
-                #index with no conflict
-                #come back to this
-                # set new entries
-                self.next_index[msg['src']] = msg['prev_log_index']
-                #temp_entries = []
-                #temp_entries.append(self.log[self.next_index[msg['src']]])
-                unacked_servers = self.unacked_requests[msg['MID']]
-                for m in list(unacked_servers):
-                    m_json = json.loads(m)
-                    if m_json['dst'] == msg['src']:
-                        self.unacked_requests[msg['MID']].remove(m)
-                        break
+                    #TODO uncommenting out the below line causes every test to fail
+                    #self.send_append_request(msg['entries'], msg['MID'])
+                    # we don't want to bother with this entry again
+                    self.number_appended[msg['MID']] = -1000
+            else:
+                next_idx_to_append = self.next_index[msg['src']]
+                self.next_index[msg['src']] = next_idx_to_append - 1
                 temp_entries = []
                 temp_entries.append(self.log[self.next_index[msg['src']]])
+                # print("%s temp_entries %s" % (self.id, self.log[self.next_index[msg['src']]]))
+                for entry in msg['entries']:
+                    # print entry
+                    temp_entries.append(entry)  # TODO care about prev_term and prev_idx
                 self.append_one_server(temp_entries, msg['src'], msg['MID'])
-        self.check_timeouts()
+            '''
 
-    def check_timeouts(self):
-        global sock
-
-        #TODO this code is really, really messy
-        #It works, but I wish we had a cleaner way to check timeouts
-
-
-        for mid in self.unacked_requests:
-            unacked_msgs = self.unacked_requests[mid]
-            for m in list(unacked_msgs):
-                m_json = json.loads(m)
-                if time.time() * TIME_SCALE - m_json['send_time'] >= RTT_INTERVAL:
-                    cur_time = time.time() * TIME_SCALE
-                    #update time and dict
-                    m_json['send_time'] = cur_time
-                    new_m = json.dumps(m_json)
-                    self.unacked_requests[mid].remove(m)
-                    self.unacked_requests[mid].add(new_m)
-                    sock.send(new_m)
-                    self.print_msg("[CHECK_TIMEOUTS] RESENDING " + m_json['MID'])
-                    return
-
-
-    def send_append_request(self, entries, mid):
+    def send_append_request(self, entries, MID):
         for server_id in self.other_server_ids:
-            self.append_one_server(entries, server_id, mid)
+            self.append_one_server(entries, server_id, MID)
 
-    def append_one_server(self, entries, server_id, mid):
-        global sock, TIME_SCALE
-
-        #the next index to send, minus 1
+    def append_one_server(self, entries, server_id, MID):
         prev_log_index = self.next_index[server_id] - 1
         (prev_mid, prev_command, prev_log_term) = self.log[prev_log_index]
-        send_time = time.time() * TIME_SCALE
-        #L: 1 2 3 4 5 6 7
-        #F: 1 2 3 4 5 6
-        #prev_log_index = 6
-        #entries = [7]
-
-        # L: 1 2 3 4 5 6 7
-        # F: 1 2 3 4
-        # prev_log_index = 4
-        # entries = [5]
-        if len(entries) > 0:
-            #we already have the entry at next_index[server_id]
-            index = self.next_index[server_id] + 1
-            last_log_index = len(self.log) - 1
-            while index <= last_log_index:
-                entries.append(self.log[index])
-                index += 1
-            self.print_msg("[APPEND_ONE] SENDING %s to %s with %d entries log length is %d prev_log_idx %d"
-                           % (mid, server_id, len(entries), len(self.log), prev_log_index), True)
         append_entry_RPC = {'src': self.id, 'dst': server_id, 'leader': self.id,
-                            'type': 'append_request', 'MID': mid, 'term': self.current_term,
-                            'entries': entries, 'leader_commit': self.commit_index, 'send_time': send_time,
+                            'type': 'append_request', 'MID': MID, 'term': self.current_term,
+                            'entries': entries, 'leader_commit': self.commit_index,
                             'prev_log_index': prev_log_index, 'prev_log_term': prev_log_term}
         sock.send(json.dumps(append_entry_RPC))
-        #check that it's not a heartbeat
-        if len(entries) > 0:
-            self.unacked_requests[mid].add(json.dumps(append_entry_RPC))
-            self.print_msg("i %s ADDED %s" % (str(self.id), str(mid)))
 
     def send_regular_heartbeat(self, entries):
-        mid = str(uuid.UUID)
-        self.last_heartbeat_sent = time.time() * TIME_SCALE
-        self.send_append_request(entries, mid)
+        global HEARTBEAT_INTERVAL
+        self.send_append_request(entries, str(uuid.UUID))
+        threading.Timer(HEARTBEAT_INTERVAL, self.send_regular_heartbeat, [entries]).start()
 
 
 def main():
