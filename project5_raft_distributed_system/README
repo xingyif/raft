@@ -1,0 +1,18 @@
+High-level approach:
+Split the project into different parts.
+0. Implemented leader election, made sure it works before moving on to implementing
+the next part
+1. Implemented log replication
+2. Improve performance by reducing number of messages sent between servers
+3. Deal with partition
+
+Challenges faced:
+Debugging distributed systems is hard
+
+An overview of how you tested your code:
+Isolated code into different part. Created an isolated environment, which we could
+understand. Tested code chunks in each individual environment and used print 
+statements to make sure that the produced result is what we expected.
+Wrote smaller programs that simulates the code, and tested the simulated program
+carefully.
+
