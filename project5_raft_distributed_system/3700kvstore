@@ -451,10 +451,16 @@ class StateMachine:
                 self.append_one_server(temp_entries, msg['src'], msg['MID'])
             '''
 
+    '''
+    sends an append request to all servers
+    '''
     def send_append_request(self, entries, MID):
         for server_id in self.other_server_ids:
             self.append_one_server(entries, server_id, MID)
 
+    '''
+    creates an append request for an individual server
+    '''
     def append_one_server(self, entries, server_id, MID):
         prev_log_index = self.next_index[server_id] - 1
         (prev_mid, prev_command, prev_log_term) = self.log[prev_log_index]
