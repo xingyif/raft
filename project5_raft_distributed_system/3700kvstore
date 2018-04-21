@@ -87,8 +87,8 @@ class StateMachine:
                     self.act_as_candidate(msg)
                 elif self.state == 'leader':
                     self.check_for_majority()
-                    if time.time() * TIME_SCALE - self.last_heartbeat_sent >= HEARTBEAT_INTERVAL:
-                        self.send_regular_heartbeat([])
+                    #if time.time() * TIME_SCALE - self.last_heartbeat_sent >= HEARTBEAT_INTERVAL:
+                    #    self.send_regular_heartbeat([])
                     self.act_as_leader(msg)
 
     def print_msg(self, msg, bool=False):
@@ -167,16 +167,14 @@ class StateMachine:
                 self.print_msg("[APPLY_COMMAND] Putting value %s in key %s for message %s" %
                                (command['value'], command['key'], mid))
             if self.state == 'leader':
-                self.print_msg("[APPLY COMMAND] %s is %s" % (mid, json.dumps(command)), True)
+                self.print_msg("[APPLY COMMAND] %s is %s" % (mid, json.dumps(command)))
                 if command['cmd'] == 'get':
                     value = self.key_value_store.get(command['key'], '')
-                    response = {'src': self.id, 'dst': command['client_id'],
-                                'leader': self.id, 'type': 'ok',
-                                'MID': mid, 'value': value}
+                    response = {'src': self.id, 'dst': command['client_id'], 'leader': self.id,
+                                'type': 'ok', 'MID': mid, 'value': value}
                 elif command['cmd'] == 'put':
-                    response = {'src': self.id, 'dst': command['client_id'],
-                                'leader': self.id, 'type': 'ok',
-                                'MID': mid}
+                    response = {'src': self.id, 'dst': command['client_id'], 'leader': self.id,
+                                'type': 'ok', 'MID': mid}
                 sock.send(json.dumps(response))
 
     '''
@@ -264,12 +262,14 @@ class StateMachine:
     '''
     finds first instance of term in this log
     '''
+    '''
     def find_first_term_instance(self, term, start_index):
         for i in range(start_index, 0, -1):
             (mid, command, cur_term) = self.log[i]
             if cur_term < term:
                 return i + 1
         return 1
+    '''
 
     '''
     sends append response with given values
@@ -282,8 +282,6 @@ class StateMachine:
                     'prev_log_term': prev_log_term, 'entries': msg['entries'], 'receive_time': time.time() * TIME_SCALE,
                     'last_log_index': len(self.log) - 1, 'accept_request': accept_request}
         sock.send(json.dumps(response))
-        response['entries'] = []
-        self.print_msg(response, True)
 
     '''
     For followers and candidates, handle append entry requests 
@@ -300,9 +298,9 @@ class StateMachine:
         try:
             (prev_mid, prev_command, prev_term) = self.log[msg['prev_log_index']]
             if prev_term != msg['prev_log_term']:
-                index = self.find_first_term_instance(prev_term, msg['prev_log_index'])
+                #index = self.find_first_term_instance(prev_term, msg['prev_log_index'])
                 #term of the conflcting entry and first index stored for that term
-                self.send_append_response(msg, index, prev_term, False)
+                self.send_append_response(msg, msg['prev_log_index'], prev_term, False)
                 return
         except IndexError:
             (mid, command, term) = self.log[len(self.log) - 1]
@@ -322,8 +320,6 @@ class StateMachine:
         if self.commit_index > len(self.log) - 1:
             self.commit_index = len(self.log) - 1
         self.send_append_response(msg, msg['prev_log_index'], msg['prev_log_term'], True)
-
-
 
     def act_as_follower(self, msg):
         # have we timed out
@@ -351,10 +347,6 @@ class StateMachine:
                 #if they have the same term, the longer log is more up to date
                 if (last_log_term < msg['last_log_term']) \
                         or (last_log_term == msg['last_log_term'] and last_log_index <= msg['last_log_index']):
-                    self.print_msg("candidate's %s last term is %s and mine %s is %s" %
-                                   (msg['src'], msg['last_log_term'], self.id, last_log_term))
-                    self.print_msg("candidate's %s last index is %s and mine %s is %s" %
-                                   (msg['src'], msg['last_log_index'], self.id, last_log_index))
                     self.voted_for = msg['src']
                     self.send_vote_response(msg, self.current_term, True)
                 else:
@@ -411,45 +403,48 @@ class StateMachine:
         return entry
 
     def check_for_majority(self):
-        if self.commit_index == len(self.log) - 1:
-            return
-        check_index = self.commit_index + 1
-        N = len(self.other_server_ids) + 1
-        majority = N / 2 + 1
-        counter = 1
-        for server_id in self.match_index:
-            if self.match_index[server_id] >= check_index:
-                counter += 1
-        (mid, command, term) = self.log[check_index]
-        if counter >= majority and term == self.current_term:
-            self.commit_index = check_index
+        while True:
+            if self.commit_index == len(self.log) - 1:
+                return
+            check_index = self.commit_index + 1
+            N = len(self.other_server_ids) + 1
+            majority = N / 2 + 1
+            counter = 1
+            for server_id in self.match_index:
+                if self.match_index[server_id] >= check_index:
+                    counter += 1
+            (mid, command, term) = self.log[check_index]
+            if counter >= majority and term == self.current_term:
+                self.commit_index = check_index
+                self.print_msg("Commit index is now %d" % self.commit_index, True)
+            else:
+                return
 
     def act_as_leader(self, msg):
-        N = len(self.other_server_ids) + 1
-        majority = N / 2 + 1
-        minority = N - majority
         entries = []
         if msg['type'] == 'get':
+            self.print_msg("RECEIVED %s" % msg['MID'], True)
             self.last_message_appended = time.time() * TIME_SCALE
             key = msg['key']
             command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key})
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
-            self.print_msg("[ACT_AS_LEADER] CREATED %s" % (msg['MID']), True)
             self.send_append_request(entries, msg['MID'])
         elif msg['type'] == 'put':
+            self.print_msg("RECEIVED %s" % msg['MID'], True)
             self.last_message_appended = time.time() * TIME_SCALE
             key = msg['key']
             value = msg['value']
             command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key, 'value': value})
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
-            self.print_msg("[ACT_AS_LEADER] CREATED %s with key %s and value %s" % (msg['MID'], key, value), True)
             self.send_append_request(entries, msg['MID'])
         elif msg['type'] == 'append_response':
             if msg['accept_request']:
+                self.print_msg("%s accepted request %s" % (msg['src'], msg['MID']), True)
                 self.next_index[msg['src']] = msg['last_log_index'] + 1
                 self.match_index[msg['src']] = msg['last_log_index']
+                self.check_for_majority()
             elif not msg['accept_request']:
                 #index with no conflict
                 #come back to this
@@ -457,8 +452,9 @@ class StateMachine:
                 self.next_index[msg['src']] = msg['prev_log_index']
                 temp_entries = []
                 temp_entries.append(self.log[self.next_index[msg['src']]])
+                for entry in msg['entries']:
+                    temp_entries.append(entry)
                 self.append_one_server(temp_entries, msg['src'], msg['MID'])
-        #self.check_timeouts()
 
     '''
     def check_timeouts(self):
@@ -496,15 +492,7 @@ class StateMachine:
         prev_log_index = self.next_index[server_id] - 1
         (prev_mid, prev_command, prev_log_term) = self.log[prev_log_index]
         send_time = time.time() * TIME_SCALE
-        #L: 1 2 3 4 5 6 7
-        #F: 1 2 3 4 5 6
-        #prev_log_index = 6
-        #entries = [7]
 
-        # L: 1 2 3 4 5 6 7
-        # F: 1 2 3 4
-        # prev_log_index = 4
-        # entries = [5]
         if len(entries) > 0:
             #we already have the entry at next_index[server_id]
             index = self.next_index[server_id] + 1
@@ -514,8 +502,8 @@ class StateMachine:
                 index += 1
             if len(entries) > 11:
                 entries = entries[:10]
-            self.print_msg("[APPEND_ONE] SENDING %s to %s with %d entries log length is %d prev_log_idx %d"
-                           % (mid, server_id, len(entries), len(self.log), prev_log_index), True)
+            self.print_msg("Sending %s to %s with %d entries at prev_log_index %d"
+                           % (mid, server_id, len(entries), prev_log_index))
         append_entry_RPC = {'src': self.id, 'dst': server_id, 'leader': self.id,
                             'type': 'append_request', 'MID': mid, 'term': self.current_term,
                             'entries': entries, 'leader_commit': self.commit_index, 'send_time': send_time,
