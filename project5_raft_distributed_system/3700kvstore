@@ -6,7 +6,6 @@ import sys
 import socket
 import json
 import random
-import threading
 
 # Server ID number
 my_id = sys.argv[1]
@@ -27,6 +26,7 @@ SOCK_RECV_SIZE = 32768
 
 sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
 sock.connect(my_id)
+
 
 class StateMachine:
 
@@ -60,8 +60,6 @@ class StateMachine:
         self.election_timeout = random.uniform(RAND_MIN, RAND_MAX)
         self.start_election_time = 0
         self.key_value_store = {}
-        #MID -> list of server ids that haven't sent an accept_request back
-        self.unacked_requests = {}
         #time the last heartbeat was sent
         self.last_heartbeat_sent = 0
         self.last_message_appended = 0
@@ -88,10 +86,10 @@ class StateMachine:
                 elif self.state == 'candidate':
                     self.act_as_candidate(msg)
                 elif self.state == 'leader':
-                    #TODO this if statement doesn't work
+                    self.check_for_majority()
                     if time.time() * TIME_SCALE - self.last_heartbeat_sent >= HEARTBEAT_INTERVAL:
                         self.send_regular_heartbeat([])
-                    self.wait_to_send(msg)
+                    self.act_as_leader(msg)
 
     def print_msg(self, msg, bool=False):
         #bool = False
@@ -142,11 +140,9 @@ class StateMachine:
             response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
                                   'type': 'fail', 'MID': msg['MID']}
             self.print_msg("[CLIENT HANDLER] Responding FAIL to client %s" % msg['MID'])
-            #self.queued_client_requests.add(json.dumps(msg))
         else:
             response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id,
                                   'type': 'redirect', 'MID': msg['MID']}
-            #self.queued_client_requests.add(json.dumps(msg))
             self.print_msg("[CLIENT HANDLER] Responding REDIRECT to client %s" % msg['MID'])
             if msg['type'] == 'put':
                 self.print_msg("[CLIENT_HANDLER] %s key %s and value %s"
@@ -293,12 +289,12 @@ class StateMachine:
     For followers and candidates, handle append entry requests 
     '''
     def append_handler(self, msg):
-        #heartbeat
-        if len(msg['entries'] == 0):
+        if len(msg['entries']) == 0:
             self.become_follower(msg['term'], msg['leader'])
             #update commit index too
             if msg['leader_commit'] > self.commit_index:
                 self.commit_index = min(msg['leader_commit'], len(self.log) - 1)
+            return
         if self.current_term > msg['term']:
             self.send_append_response(msg, msg['prev_log_index'], msg['prev_log_term'], False)
         try:
@@ -311,7 +307,7 @@ class StateMachine:
         except IndexError:
             (mid, command, term) = self.log[len(self.log) - 1]
             #TODO issue may be here
-            self.send_append_response(msg, len(self.log), term, False)
+            self.send_append_response(msg, len(self.log) - 1, term, False)
             return
 
         keep_index = msg['prev_log_index'] + 1
@@ -414,11 +410,19 @@ class StateMachine:
         self.log.append(entry)
         return entry
 
-    def wait_to_send(self, msg):
-        if msg['type'] in ['get', 'put']:
-            while time.time() * TIME_SCALE - self.last_message_appended < MESSAGE_INTERVAL:
-                continue
-        self.act_as_leader(msg)
+    def check_for_majority(self):
+        if self.commit_index == len(self.log) - 1:
+            return
+        check_index = self.commit_index + 1
+        N = len(self.other_server_ids) + 1
+        majority = N / 2 + 1
+        counter = 1
+        for server_id in self.match_index:
+            if self.match_index[server_id] >= check_index:
+                counter += 1
+        (mid, command, term) = self.log[check_index]
+        if counter >= majority and term == self.current_term:
+            self.commit_index = check_index
 
     def act_as_leader(self, msg):
         N = len(self.other_server_ids) + 1
@@ -431,7 +435,6 @@ class StateMachine:
             command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key})
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
-            self.unacked_requests[msg['MID']] = set()
             self.print_msg("[ACT_AS_LEADER] CREATED %s" % (msg['MID']), True)
             self.send_append_request(entries, msg['MID'])
         elif msg['type'] == 'put':
@@ -441,41 +444,23 @@ class StateMachine:
             command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key, 'value': value})
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
-            self.unacked_requests[msg['MID']] = set()
             self.print_msg("[ACT_AS_LEADER] CREATED %s with key %s and value %s" % (msg['MID'], key, value), True)
             self.send_append_request(entries, msg['MID'])
         elif msg['type'] == 'append_response':
             if msg['accept_request']:
                 self.next_index[msg['src']] = msg['last_log_index'] + 1
-                unacked_msgs = self.unacked_requests[msg['MID']]
-                for m in list(unacked_msgs):
-                    m_json = json.loads(m)
-                    if m_json['dst'] == msg['src']:
-                        self.unacked_requests[msg['MID']].remove(m)
-                        break
-                if len(self.unacked_requests[msg['MID']]) == minority:
-                    self.print_msg("Commited %s" % msg['MID'], True)
-                    self.commit_index += 1
-                if len(self.unacked_requests[msg['MID']]) == 0:
-                    self.unacked_requests.pop(msg['MID'])
+                self.match_index[msg['src']] = msg['last_log_index']
             elif not msg['accept_request']:
                 #index with no conflict
                 #come back to this
                 # set new entries
                 self.next_index[msg['src']] = msg['prev_log_index']
-                #temp_entries = []
-                #temp_entries.append(self.log[self.next_index[msg['src']]])
-                unacked_servers = self.unacked_requests[msg['MID']]
-                for m in list(unacked_servers):
-                    m_json = json.loads(m)
-                    if m_json['dst'] == msg['src']:
-                        self.unacked_requests[msg['MID']].remove(m)
-                        break
                 temp_entries = []
                 temp_entries.append(self.log[self.next_index[msg['src']]])
                 self.append_one_server(temp_entries, msg['src'], msg['MID'])
-        self.check_timeouts()
+        #self.check_timeouts()
 
+    '''
     def check_timeouts(self):
         global sock
 
@@ -497,6 +482,7 @@ class StateMachine:
                     sock.send(new_m)
                     self.print_msg("[CHECK_TIMEOUTS] RESENDING " + m_json['MID'])
                     return
+    '''
 
 
     def send_append_request(self, entries, mid):
@@ -526,6 +512,8 @@ class StateMachine:
             while index <= last_log_index:
                 entries.append(self.log[index])
                 index += 1
+            if len(entries) > 11:
+                entries = entries[:10]
             self.print_msg("[APPEND_ONE] SENDING %s to %s with %d entries log length is %d prev_log_idx %d"
                            % (mid, server_id, len(entries), len(self.log), prev_log_index), True)
         append_entry_RPC = {'src': self.id, 'dst': server_id, 'leader': self.id,
@@ -533,10 +521,6 @@ class StateMachine:
                             'entries': entries, 'leader_commit': self.commit_index, 'send_time': send_time,
                             'prev_log_index': prev_log_index, 'prev_log_term': prev_log_term}
         sock.send(json.dumps(append_entry_RPC))
-        #check that it's not a heartbeat
-        if len(entries) > 0:
-            self.unacked_requests[mid].add(json.dumps(append_entry_RPC))
-            self.print_msg("i %s ADDED %s" % (str(self.id), str(mid)))
 
     def send_regular_heartbeat(self, entries):
         mid = str(uuid.UUID)
