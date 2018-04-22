@@ -415,13 +415,14 @@ class StateMachine:
         majority = N / 2 + 1
         entries = []
         if msg['type'] == 'get':
-            self.committed_message[msg['MID']] = False
+            # self.committed_message[msg['MID']] = False
             key = msg['key']
-            self.number_appended[msg['MID']] = set()
-            command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key})
-            entry = self.append_new_log_entry(command, msg['MID'])
-            entries.append(entry)
-            self.send_append_request(entries, msg['MID'])
+            # self.number_appended[msg['MID']] = set()
+            # command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key})
+            # entry = self.append_new_log_entry(command, msg['MID'])
+            # entries.append(entry)
+            # self.send_append_request(entries, msg['MID'])
+            self.key_value_store[key]
         elif msg['type'] == 'put':
             self.committed_message[msg['MID']] = False
             key = msg['key']
