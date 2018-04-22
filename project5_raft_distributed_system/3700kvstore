@@ -423,8 +423,8 @@ class StateMachine:
             self.send_append_request(entries, msg['MID'])
             self.commit_index += 1
         elif msg['type'] == 'append_response':
-            '''
             if msg['accept_request']:
+                # records how many replicas accepted the append entry RPC
                 value = self.number_appended[msg['MID']]
                 # someone's successfully appended it so we'll increment this
                 self.number_appended[msg['MID']] = value + 1
@@ -449,7 +449,7 @@ class StateMachine:
                     # print entry
                     temp_entries.append(entry)  # TODO care about prev_term and prev_idx
                 self.append_one_server(temp_entries, msg['src'], msg['MID'])
-            '''
+
 
     '''
     sends an append request to all servers
