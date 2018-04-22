@@ -69,6 +69,8 @@ class StateMachine:
         self.number_appended = {}
         # MID, response
         self.responses_to_client = {}
+        # MID -> list of server ids that haven't sent an accept_request back
+        self.unacked_requests = {}
 
     '''
     Runs the state machine
@@ -441,6 +443,7 @@ class StateMachine:
     def act_as_leader(self, msg):
         N = len(self.other_server_ids) + 1
         majority = N / 2 + 1
+        minority = N - majority
         entries = []
         # handle GET request from clients
         # apply command to log, send append entry RPC to followers
@@ -450,14 +453,14 @@ class StateMachine:
             key = msg['key']
             value = self.key_value_store.get(key, '')
             self.number_appended[msg['MID']] = 0
-            # TODO response to client after majority?
-            # self.responses_to_client[msg['MID']] = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
-            #                                       'type': 'ok', 'MID': msg['MID'], 'value': value}
-            command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key})
-            entry = self.append_new_log_entry(command, msg['MID'])
-            entries.append(entry)
-            self.send_append_request(entries, msg['MID'])
-            self.commit_index += 1
+
+            self.responses_to_client[msg['MID']] = {'src': self.id, 'dst': msg['src'], 'leader': self.id,
+                                                  'type': 'ok', 'MID': msg['MID'], 'value': value}
+            # command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key})
+            # entry = self.append_new_log_entry(command, msg['MID'])
+            # entries.append(entry)
+            # self.send_append_request(entries, msg['MID'])
+            # self.commit_index += 1
         # handle PUT request from clients
         # apply command to log, send append entry RPC to followers
         # get majority, then respond to client
@@ -475,33 +478,63 @@ class StateMachine:
             self.commit_index += 1
         # handle followers' append entry responses
         elif msg['type'] == 'append_response':
-            '''
             if msg['accept_request']:
-                value = self.number_appended[msg['MID']]
-                # someone's successfully appended it so we'll increment this
-                self.number_appended[msg['MID']] = value + 1
-                entries_appended = msg['entries']
-                last_entry_idx = len(entries_appended) - 1
-                last_entry_appended = entries_appended[last_entry_idx]
                 # set the next index to send to be: the index of last entry appended + 1
-                self.next_index[msg['src']] = len(self.log)  # TODO unsure
-                if self.number_appended[msg['MID']] >= majority:
+                self.next_index[msg['src']] = msg['last_log_index'] + 1  # TODO unsure
+                try:
+                    unacked_msgs = self.unacked_requests[msg['MID']]
+                except KeyError:
+                    self.check_timeouts()
+                    return
+                for m in list(unacked_msgs):
+                    m_json = json.loads(m)
+                    if m_json['dst'] == msg['src']:
+                        self.unacked_requests[msg['MID']].remove(m)
+                        break
+                if len(self.unacked_requests[msg['MID']]) == minority:
                     self.commit_index += 1
-                    #TODO uncommenting out the below line causes every test to fail
-                    #self.send_append_request(msg['entries'], msg['MID'])
-                    # we don't want to bother with this entry again
-                    self.number_appended[msg['MID']] = -1000
-            else:
-                next_idx_to_append = self.next_index[msg['src']]
-                self.next_index[msg['src']] = next_idx_to_append - 1
+                    self.unacked_requests.pop(msg['MID'])
+            elif not msg['accept_request']:
+                self.next_index[msg['src']] = msg['prev_log_index']
                 temp_entries = []
                 temp_entries.append(self.log[self.next_index[msg['src']]])
-                # print("%s temp_entries %s" % (self.id, self.log[self.next_index[msg['src']]]))
                 for entry in msg['entries']:
-                    # print entry
                     temp_entries.append(entry)  # TODO care about prev_term and prev_idx
+                try:
+                    unacked_servers = self.unacked_requests[msg['MID']]
+                except KeyError:
+                    self.check_timeouts()
+                    return
+                for m in list(unacked_servers):
+                    m_json = json.loads(m)
+                    if m_json['dst'] == msg['src']:
+                        self.unacked_requests[msg['MID']].remove(m)
+                        break
                 self.append_one_server(temp_entries, msg['src'], msg['MID'])
-            '''
+            self.check_timeouts()
+
+    def check_timeouts(self):
+        global sock
+        RTT_INTERVAL = 50
+
+        # TODO this code is really, really messy
+        # It works, but I wish we had a cleaner way to check timeouts
+
+        for mid in self.unacked_requests:
+            unacked_msgs = self.unacked_requests[mid]
+            for m in list(unacked_msgs):
+                m_json = json.loads(m)
+                if time.time() * TIME_SCALE - m_json['send_time'] >= RTT_INTERVAL:
+                    cur_time = time.time() * TIME_SCALE
+                    # update time and dict
+                    m_json['send_time'] = cur_time
+                    new_m = json.dumps(m_json)
+                    self.unacked_requests[mid].remove(m)
+                    self.unacked_requests[mid].add(new_m)
+                    sock.send(new_m)
+                    self.print_msg("RESENDING " + m_json['MID'], True)
+                    return
+
 
     '''
     sends an append request to all servers
