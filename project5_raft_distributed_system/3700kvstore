@@ -430,7 +430,11 @@ class StateMachine:
             if msg['accept_request']:
                 # set the next index to send to be: the index of last entry appended + 1
                 self.next_index[msg['src']] = msg['last_log_index'] + 1  # TODO unsure
-                unacked_msgs = self.unacked_requests[msg['MID']]
+                try:
+                    unacked_msgs = self.unacked_requests[msg['MID']]
+                except KeyError:
+                    self.check_timeouts()
+                    return
                 for m in list(unacked_msgs):
                     m_json = json.loads(m)
                     if m_json['dst'] == msg['src']:
@@ -448,8 +452,11 @@ class StateMachine:
                 # print("%s temp_entries %s" % (self.id, self.log[self.next_index[msg['src']]]))
                 for entry in msg['entries']:
                     temp_entries.append(entry)  # TODO care about prev_term and prev_idx
-
-                unacked_servers = self.unacked_requests[msg['MID']]
+                try:
+                    unacked_servers = self.unacked_requests[msg['MID']]
+                except KeyError:
+                    self.check_timeouts()
+                    return
                 for m in list(unacked_servers):
                     m_json = json.loads(m)
                     if m_json['dst'] == msg['src']:
