@@ -439,9 +439,7 @@ class StateMachine:
                         break
                 if len(self.unacked_requests[msg['MID']]) == minority:
                     self.commit_index += 1
-                if len(self.unacked_requests[msg['MID']]) == 0:
                     self.unacked_requests.pop(msg['MID'])
-                    self.print_msg("i %s POPPED %s from dict" % (str(self.id), msg['MID']), True)
             elif not msg['accept_request']:
                 self.print_msg("REJECTED " + msg['MID'], True)
                 self.next_index[msg['src']] = msg['prev_log_index']
