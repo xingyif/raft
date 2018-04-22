@@ -6,7 +6,6 @@ import sys
 import socket
 import json
 import random
-import threading
 
 # Server ID number
 my_id = sys.argv[1]
@@ -94,7 +93,7 @@ class StateMachine:
     def print_msg(self, msg, bool=False):
         bool = False
         if bool:
-            print(msg)
+            print("[%s] [%s] [%s] [term: %s] %s" % (str(time.time()), self.id, self.state, self.current_term, msg))
         return
 
     '''
@@ -206,6 +205,8 @@ class StateMachine:
         self.leader_id = self.id
         self.voted_for = None
         self.votes_count = 0
+        self.commit_index = len(self.log) - 1
+        self.apply_command_and_reply_client()
         self.send_regular_heartbeat([])
 
     '''
@@ -480,7 +481,6 @@ class StateMachine:
                     sock.send(new_m)
                     self.print_msg("RESENDING " + m_json['MID'], True)
                     return
-
 
     def send_append_request(self, entries, mid):
         for server_id in self.other_server_ids:
