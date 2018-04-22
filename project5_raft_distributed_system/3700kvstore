@@ -6,7 +6,6 @@ import sys
 import socket
 import json
 import random
-import threading
 
 # Server ID number
 my_id = sys.argv[1]
@@ -17,7 +16,8 @@ replica_ids = sys.argv[2:]
 RAND_MIN = 150
 RAND_MAX = 300
 TIME_SCALE = 1000
-HEARTBEAT_INTERVAL = 0.10
+HEARTBEAT_INTERVAL = 100
+RTT_INTERVAL = 50
 
 # Connect to the network. All messages to/from other replicas and clients will
 # occur over this socket
@@ -26,8 +26,6 @@ SOCK_RECV_SIZE = 32768
 sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
 sock.connect(my_id)
 
-# TODO set RTT_INTERVAL
-# TODO trigger send_indefinitely() ONCE somewhere
 
 class StateMachine:
 
@@ -61,16 +59,11 @@ class StateMachine:
         self.election_timeout = random.uniform(RAND_MIN, RAND_MAX)
         self.start_election_time = 0
         self.key_value_store = {}
-        # leader checking how many followers have appended
-        # MID, num_of_followers_appended (set(id))
-        self.number_appended = {}
-        # MID, response
-        self.responses_to_client = {}
         self.queued_client_requests = []
-        self.committed_message = {}
-        # all unacked messages, {MID, [RPC_msgs, ...]}
-        # serverID is the receiver's id
+        #MID -> list of server ids that haven't sent an accept_request back
         self.unacked_requests = {}
+        #time the last heartbeat was sent
+        self.last_heartbeat_sent = 0
 
     def run(self):
         global sock, SOCK_RECV_SIZE
@@ -92,12 +85,15 @@ class StateMachine:
                 elif self.state == 'candidate':
                     self.act_as_candidate(msg)
                 elif self.state == 'leader':
+                    if time.time() * TIME_SCALE - self.last_heartbeat_sent >= HEARTBEAT_INTERVAL \
+                            and len(self.unacked_requests) == 0:
+                        self.send_regular_heartbeat([])
                     self.act_as_leader(msg)
 
     def print_msg(self, msg, bool=False):
-        #bool = False
+        bool = False
         if bool:
-            print(msg)
+            print("[%s] [%s] [%s] [term: %s] %s" % (str(time.time()), self.id, self.state, self.current_term, msg))
         return
 
     '''
@@ -124,8 +120,8 @@ class StateMachine:
 
     '''
     all servers:
-    if RPC request or response contains term T > current_term:
-    set current_term = T, convert to follower
+    if RPC request or response contains term given_term > current_term:
+    set current_term = given_term, convert to follower
     return True if becomes follower
     '''
     def check_terms(self, given_term, leader):
@@ -166,18 +162,15 @@ class StateMachine:
             if command['cmd'] == 'put':
                 self.key_value_store[command['key']] = command['value']
             if self.state == 'leader':
-                # TODO probably don't need to store responses in dict, just send to client
                 if command['cmd'] == 'get':
                     value = self.key_value_store.get(command['key'], '')
-                    self.responses_to_client[mid] = {'src': self.id, 'dst': command['client_id'],
+                    response = {'src': self.id, 'dst': command['client_id'],
                                                      'leader': self.id, 'type': 'ok',
                                                      'MID': mid, 'value': value}
                 elif command['cmd'] == 'put':
-                    self.responses_to_client[mid] = {'src': self.id, 'dst': command['client_id'],
+                    response = {'src': self.id, 'dst': command['client_id'],
                                                      'leader': self.id, 'type': 'ok',
                                                      'MID': mid}
-                response = self.responses_to_client[mid]  # TODO should i remove it?
-                self.print_msg(json.dumps(response))
                 sock.send(json.dumps(response))
                 self.print_msg("RESPONSE SENT " + mid + " " + str(time.time()))
 
@@ -212,8 +205,9 @@ class StateMachine:
         self.leader_id = self.id
         self.voted_for = None
         self.votes_count = 0
-        entries = []
-        self.send_regular_heartbeat(entries)
+        self.commit_index = len(self.log) - 1
+        self.apply_command_and_reply_client()
+        self.send_regular_heartbeat([])
 
     '''
     starts election. Candidate increments term, votes for itself
@@ -273,8 +267,7 @@ class StateMachine:
 
         response = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'term': self.current_term,
                     'type': 'append_response', 'MID': msg['MID'], 'prev_log_index': prev_log_index,
-                    'receive_time': msg['send_time'],
-                    'prev_log_term': prev_log_term, 'entries': msg['entries'],
+                    'prev_log_term': prev_log_term, 'entries': msg['entries'], 'receive_time': time.time() * TIME_SCALE,
                     'last_log_index': len(self.log) - 1, 'accept_request': accept_request}
         sock.send(json.dumps(response))
 
@@ -306,11 +299,13 @@ class StateMachine:
                 (mid, command, term) = self.log[index]
                 self.print_msg("ADJUSTED index to %s with term %s" % (index, term), True)
                 self.send_append_response(msg, index, prev_term, False)
+                return
         except IndexError:
             (mid, command, term) = self.log[len(self.log) - 1]
             self.print_msg("REJECTED %s because length of log is %s"
                            % (msg['MID'], str(len(self.log))), True)
             self.send_append_response(msg, len(self.log) - 1, term, False)
+            return
         # ready to accept the AppendEntriesRPC request
         # delete all following entries after the current one
         # If an existing entry conflicts with a new one (same index
@@ -404,7 +399,6 @@ class StateMachine:
         # TODO do i care about duplicate?
         entry = (mid, command, self.current_term)
         self.log.append(entry)
-        self.number_appended[mid].add(self.id)
         return entry
 
     # send entry4
@@ -413,100 +407,114 @@ class StateMachine:
     def act_as_leader(self, msg):
         N = len(self.other_server_ids) + 1
         majority = N / 2 + 1
+        minority = N - majority
         entries = []
         if msg['type'] == 'get':
             # self.committed_message[msg['MID']] = False
             key = msg['key']
             # self.number_appended[msg['MID']] = set()
             # command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key})
+            # self.unacked_requests[msg['MID']] = set()
             # entry = self.append_new_log_entry(command, msg['MID'])
             # entries.append(entry)
+            # self.print_msg("i %s CREATED %s" % (str(self.id), msg['MID']), True)
             # self.send_append_request(entries, msg['MID'])
-            self.key_value_store[key]
+            # value = self.key_value_store[key]
+            # send back to client
         elif msg['type'] == 'put':
-            self.committed_message[msg['MID']] = False
             key = msg['key']
             value = msg['value']
-            self.number_appended[msg['MID']] = set()
             command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key, 'value': value})
             entry = self.append_new_log_entry(command, msg['MID'])
             entries.append(entry)
+            self.unacked_requests[msg['MID']] = set()
+            self.print_msg("i %s CREATED %s" % (str(self.id), msg['MID']), True)
             self.send_append_request(entries, msg['MID'])
         elif msg['type'] == 'append_response':
             if msg['accept_request']:
-                # someone's successfully appended it so we'll increment this
-                self.number_appended[msg['MID']].add(msg['src'])
                 # set the next index to send to be: the index of last entry appended + 1
                 self.next_index[msg['src']] = msg['last_log_index'] + 1  # TODO unsure
-                # remove the msg from the list because msg is acked
-                unacked_msg_for_server = self.unacked_requests[msg['MID']]
-                for m in list(unacked_msg_for_server):
-                    if m['src'] == msg['src']:
-                        unacked_msg_for_server.remove(m)
-
-                if len(self.number_appended[msg['MID']]) >= majority and not self.committed_message[msg['MID']]:
-                    self.print_msg("%s gotten MAJORITY RPC" % self.id, True)
+                try:
+                    unacked_msgs = self.unacked_requests[msg['MID']]
+                except KeyError:
+                    self.check_timeouts()
+                    return
+                for m in list(unacked_msgs):
+                    m_json = json.loads(m)
+                    if m_json['dst'] == msg['src']:
+                        self.unacked_requests[msg['MID']].remove(m)
+                        self.print_msg("i %s REMOVED %s request_accepted" % (str(self.id), m_json['MID']), True)
+                        break
+                if len(self.unacked_requests[msg['MID']]) == minority:
                     self.commit_index += 1
-                    self.committed_message[msg['MID']] = True
-                    self.print_msg(str(self.id) + " COMMITTED " + msg['MID'] + " " + str(time.time()))
-                    # we don't want to bother with this entry again
+                    self.unacked_requests.pop(msg['MID'])
             elif not msg['accept_request']:
-                self.print_msg(str(self.id) + " RPC got REJECTED " + msg['MID'], True)
+                self.print_msg("REJECTED " + msg['MID'], True)
                 self.next_index[msg['src']] = msg['prev_log_index']
                 temp_entries = []
                 temp_entries.append(self.log[self.next_index[msg['src']]])
                 # print("%s temp_entries %s" % (self.id, self.log[self.next_index[msg['src']]]))
                 for entry in msg['entries']:
                     temp_entries.append(entry)  # TODO care about prev_term and prev_idx
+                try:
+                    unacked_servers = self.unacked_requests[msg['MID']]
+                except KeyError:
+                    self.check_timeouts()
+                    return
+                for m in list(unacked_servers):
+                    m_json = json.loads(m)
+                    if m_json['dst'] == msg['src']:
+                        self.unacked_requests[msg['MID']].remove(m)
+                        self.print_msg("i %s REMOVED %s request_rejected" % (str(self.id), m_json['MID']), True)
+                        break
                 self.append_one_server(temp_entries, msg['src'], msg['MID'])
-            # if they didn't even send back a response
+            self.check_timeouts()
 
+    def check_timeouts(self):
+        global sock
 
-    def send_indefinitely(self, mid):
-        global RTT_INTERVAL, sock
+        #TODO this code is really, really messy
+        #It works, but I wish we had a cleaner way to check timeouts
 
-        t = threading.Timer(RTT_INTERVAL, self.send_indefinitely, [mid])
-        unacked_msg_per_server = self.unacked_requests[mid]
-        for m in unacked_msg_per_server:
-            if m['send_time'] >= time.time() - RTT_INTERVAL:
-                m['send_time'] = time.time() * TIME_SCALE
-                sock.send(json.dumps(m))
-
-        t.start()
-
+        for mid in self.unacked_requests:
+            unacked_msgs = self.unacked_requests[mid]
+            for m in list(unacked_msgs):
+                m_json = json.loads(m)
+                if time.time() * TIME_SCALE - m_json['send_time'] >= RTT_INTERVAL:
+                    cur_time = time.time() * TIME_SCALE
+                    #update time and dict
+                    m_json['send_time'] = cur_time
+                    new_m = json.dumps(m_json)
+                    self.unacked_requests[mid].remove(m)
+                    self.unacked_requests[mid].add(new_m)
+                    sock.send(new_m)
+                    self.print_msg("RESENDING " + m_json['MID'], True)
+                    return
 
     def send_append_request(self, entries, mid):
-        # send RPC only to servers that did not append
-        other_servers = self.number_appended[mid] - set(self.id)
-        servers_to_send = set(self.other_server_ids) - other_servers
-        #TODO add print statement here to make sure this is correct
-        print("START")
-        for server_id in self.number_appended[mid]:
-            print(server_id)
-        for server_id in servers_to_send:
+        for server_id in self.other_server_ids:
             self.append_one_server(entries, server_id, mid)
 
     def append_one_server(self, entries, server_id, mid):
         global sock, TIME_SCALE
+
         prev_log_index = self.next_index[server_id] - 1
         (prev_mid, prev_command, prev_log_term) = self.log[prev_log_index]
         send_time = time.time() * TIME_SCALE
         append_entry_RPC = {'src': self.id, 'dst': server_id, 'leader': self.id,
                             'type': 'append_request', 'MID': mid, 'term': self.current_term,
-                            'send_time': send_time,
-                            'entries': entries, 'leader_commit': self.commit_index,
+                            'entries': entries, 'leader_commit': self.commit_index, 'send_time': send_time,
                             'prev_log_index': prev_log_index, 'prev_log_term': prev_log_term}
         sock.send(json.dumps(append_entry_RPC))
-        unacked_msg_for_server = set()
-        unacked_msg_for_server.add(append_entry_RPC)
-        self.unacked_requests[mid] = unacked_msg_for_server
+        #check that it's not a heartbeat
+        if len(entries) > 0:
+            self.unacked_requests[mid].add(json.dumps(append_entry_RPC))
+            self.print_msg("i %s ADDED %s" % (str(self.id), str(mid)), True)
 
     def send_regular_heartbeat(self, entries):
-        global HEARTBEAT_INTERVAL
         mid = str(uuid.UUID)
-        self.number_appended[mid] = set()
+        self.last_heartbeat_sent = time.time() * TIME_SCALE
         self.send_append_request(entries, mid)
-        threading.Timer(HEARTBEAT_INTERVAL, self.send_regular_heartbeat, [entries]).start()
 
 
 def main():
