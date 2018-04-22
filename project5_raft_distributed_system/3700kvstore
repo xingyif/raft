@@ -148,7 +148,7 @@ class StateMachine:
 
         if self.leader_id == 'FFFF':
             #self.queued_client_requests.append(msg)
-            response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'fail',
+            response_to_client = {'src': self.id, "dst": msg['src'], 'leader': self.leader_id, 'type': 'redirect',
                                   'MID': msg['MID']}
         else:
             '''
