@@ -1,0 +1,9 @@
+{
+    "lifetime": 30,
+    "replicas": 5,
+    "requests": 500,
+    "mix" : 0.2,
+    "drops" : 0.5,
+    "end_wait" : 10,
+    "events" : [{"type": "kill_leader", "time": 5}]
+}
