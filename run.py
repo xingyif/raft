@@ -235,7 +235,8 @@ class Client:
                 self.sim.stats.incorrect += 1
 
             if self.items[req.key] != msg['value']:
-                print "*** Simulator Error - client received an incorrect value for a key: %s" % (raw_msg)
+                print "*** Simulator Error - client received an incorrect value for a key: %s expected: %s" % \
+                      (raw_msg, str(self.items[req.key]))
                 self.sim.stats.incorrect += 1
         else:
             self.items[req.key] = req.val
