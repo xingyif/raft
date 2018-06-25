@@ -60,9 +60,9 @@ class StateMachine:
         self.start_election_time = 0
         self.key_value_store = {}
         self.queued_client_requests = []
-        #MID -> list of server ids that haven't sent an accept_request back
+        # MID -> list of server ids that haven't sent an accept_request back
         self.unacked_requests = {}
-        #time the last heartbeat was sent
+        # time the last heartbeat was sent
         self.last_heartbeat_sent = 0
 
     def run(self):
@@ -97,7 +97,7 @@ class StateMachine:
         return
 
     '''
-    volatile state on leader
+    Volatile state on leader
     upon election, leader initializes these values to its last log index + 1
     '''
     def init_next_idx_to_send(self):
@@ -119,7 +119,7 @@ class StateMachine:
         return match_index
 
     '''
-    all servers:
+    All servers:
     if RPC request or response contains term given_term > current_term:
     set current_term = given_term, convert to follower
     return True if becomes follower
@@ -129,7 +129,7 @@ class StateMachine:
             self.become_follower(given_term, leader)
 
     '''
-    follower respond redirect when got client messages, or queue up messages if leader is unknown
+    Follower responds redirectly when received client messages, or queue up messages if leader is unknown
     '''
     def client_handler(self, msg):
         global sock
@@ -175,8 +175,8 @@ class StateMachine:
                 self.print_msg("RESPONSE SENT " + mid + " " + str(time.time()))
 
     '''
-    become a follower
-    update the term, RPC time, and leader
+    Becomes a follower
+     - update the term, RPC time, and leader
     '''
     def become_follower(self, new_term, new_leader):
         global TIME_SCALE
@@ -189,15 +189,17 @@ class StateMachine:
         self.leader_id = new_leader
 
     '''
-    become a candidate, start election
+    Becomes a candidate, start election
     '''
-
     def become_candidate(self):
         self.state = 'candidate'
         self.voted_for = None
         self.votes_count = 0
         self.start_election()
 
+    """
+    Becomes a leader after election
+    """
     def become_leader(self):
         self.state = 'leader'
         self.next_index = self.init_next_idx_to_send()
@@ -212,7 +214,6 @@ class StateMachine:
     '''
     starts election. Candidate increments term, votes for itself
     '''
-
     def start_election(self):
         global TIME_SCALE, RAND_MIN, RAND_MAX
         # increment term at start of each election
@@ -229,6 +230,10 @@ class StateMachine:
         self.send_vote_requests()
         # process the results
 
+
+    """
+    As a candidate, request other followers to vote for self
+    """
     def send_vote_requests(self):
         global sock
 
@@ -241,6 +246,9 @@ class StateMachine:
                                 'last_log_index': last_log_index, 'last_log_term': last_log_term}
             sock.send(json.dumps(request_for_vote))
 
+    """
+    Respond to the candidate with a vote result
+    """
     def send_vote_response(self, msg, term, vote_granted):
         global sock
 
@@ -324,6 +332,10 @@ class StateMachine:
             self.commit_index = min(msg['leader_commit'], len(self.log) - 1)
         self.send_append_response(msg, msg['prev_log_index'], msg['prev_log_term'], True)
 
+
+    """
+    Acting as a follower
+    """
     def act_as_follower(self, msg):
         # have we timed out
         if time.time() * TIME_SCALE - self.last_RPC_time >= self.election_timeout:
@@ -355,10 +367,11 @@ class StateMachine:
                 self.send_vote_response(msg, self.current_term, False)
 
     '''
-    process the received votes:
-    receive responses, if N/2 + 1 then become leader and send heartbeat
-    if tie, timeout and restart election
-    if failed, become follower
+    Acting as a candidate:
+     - Process the received votes:
+     - receive responses, if N/2 + 1 then become leader and send heartbeat
+     - if tie, timeout and restart election
+     - if failed, become follower
     '''
     def act_as_candidate(self, msg):
         N = len(self.other_server_ids)
@@ -401,9 +414,9 @@ class StateMachine:
         self.log.append(entry)
         return entry
 
-    # send entry4
-    # get failure back
-    # send entry3entry4 STILL USE MID FOR 4
+    """
+    Acting as a leader
+    """
     def act_as_leader(self, msg):
         N = len(self.other_server_ids) + 1
         majority = N / 2 + 1
@@ -413,13 +426,13 @@ class StateMachine:
             # self.committed_message[msg['MID']] = False
             key = msg['key']
             # self.number_appended[msg['MID']] = set()
-            # command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key})
-            # self.unacked_requests[msg['MID']] = set()
-            # entry = self.append_new_log_entry(command, msg['MID'])
-            # entries.append(entry)
-            # self.print_msg("i %s CREATED %s" % (str(self.id), msg['MID']), True)
-            # self.send_append_request(entries, msg['MID'])
-            # value = self.key_value_store[key]
+            command = json.dumps({'cmd': msg['type'], 'client_id': msg['src'], 'key': key})
+            self.unacked_requests[msg['MID']] = set()
+            entry = self.append_new_log_entry(command, msg['MID'])
+            entries.append(entry)
+            self.print_msg("i %s CREATED %s" % (str(self.id), msg['MID']), True)
+            self.send_append_request(entries, msg['MID'])
+            value = self.key_value_store[key]
             # send back to client
         elif msg['type'] == 'put':
             key = msg['key']
@@ -470,11 +483,12 @@ class StateMachine:
                 self.append_one_server(temp_entries, msg['src'], msg['MID'])
             self.check_timeouts()
 
+
+    """
+    Leader resend messages when did not receive an ack of a message after timeout
+    """
     def check_timeouts(self):
         global sock
-
-        #TODO this code is really, really messy
-        #It works, but I wish we had a cleaner way to check timeouts
 
         for mid in self.unacked_requests:
             unacked_msgs = self.unacked_requests[mid]
@@ -482,7 +496,7 @@ class StateMachine:
                 m_json = json.loads(m)
                 if time.time() * TIME_SCALE - m_json['send_time'] >= RTT_INTERVAL:
                     cur_time = time.time() * TIME_SCALE
-                    #update time and dict
+                    # update time and dict
                     m_json['send_time'] = cur_time
                     new_m = json.dumps(m_json)
                     self.unacked_requests[mid].remove(m)
@@ -491,10 +505,17 @@ class StateMachine:
                     self.print_msg("RESENDING " + m_json['MID'], True)
                     return
 
+    """
+    Leader send appendEntryRPC to all followers
+    """
     def send_append_request(self, entries, mid):
         for server_id in self.other_server_ids:
             self.append_one_server(entries, server_id, mid)
 
+
+    """
+    Leader send appendEntryRPC to one follower
+    """
     def append_one_server(self, entries, server_id, mid):
         global sock, TIME_SCALE
 
@@ -506,11 +527,15 @@ class StateMachine:
                             'entries': entries, 'leader_commit': self.commit_index, 'send_time': send_time,
                             'prev_log_index': prev_log_index, 'prev_log_term': prev_log_term}
         sock.send(json.dumps(append_entry_RPC))
-        #check that it's not a heartbeat
+        # check that it's not a heartbeat
         if len(entries) > 0:
             self.unacked_requests[mid].add(json.dumps(append_entry_RPC))
             self.print_msg("i %s ADDED %s" % (str(self.id), str(mid)), True)
 
+
+    """
+    Leader sends regular heartbeat to the followers
+    """
     def send_regular_heartbeat(self, entries):
         mid = str(uuid.UUID)
         self.last_heartbeat_sent = time.time() * TIME_SCALE
