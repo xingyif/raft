@@ -1,117 +1,8 @@
-Raft:
-As a follower:
+******High-level approach******:
 
-	##### Election
-	if election_timeout
-		if did not receive any request_vote, become candidate
-    	start election, vote for self, send out request_vote
+We split the machines into different roles. The following roles have different functionalities,
+and react differently when receiving different messages.
 
-    	once get N/2+1, them become leader
-
-	else, then i am not the first that timed out, i will just respond to incoming votes
-    	listen to request_votes, if reciving node hasn't voted yet, then it votes for the candidate
-    	reset election timeout
-
-    ####### Regular
-    if receive AppendEntries:
-    	respond
-    	
-As a leader:
-	send out AppendEntries to followers, send in intervals: heartbeat_timeout/RPC_timeout
-
-
-
-
-
-
-Beginning:
-	1. Everything is a follower. Nobody will receive heartbeats
-	2. If a follower receives no communication during its election timeout, it starts an election
-
-Election:
-	1. To begin an election, a timed out follower:
-		-Increments its current term
-		-Becomes a candidate
-		-Votes for itself
-		-Sends RequestVote RPCs
-	2. A candidate continues in the election until:
-		a. It wins the election
-			-Candidate received votes from the majority of servers
-			-It becomes leader and sends heartbeats to all of the other servers to establish
-			its authority and prevent new elections
-		b. Another server establishes itself as leader
-			-Candidate receives heartbeat from claimed leader
-			-If the claimed leader's term is at least as large as the current term, the leader  
-			is accepted as legitimate
-			-If the claimed leader's term is smaller, it rejects the RPC and continues in  
-			candidate state
-		c. A period of time goes by with no winner
-			-Each candidate times out and starts a new election by incrementing its term
-			-Without randomized timeouts, split votes can remain indefinitely
-
-
-Sam's:
-Log Replication:
-	1. Leader receives client command
-	2. Leader appends command to its log and tells followers to do the same
-	3. Once a majority of replicas have appended the command, the entry is considered committed
-	4. The leader applies the command to its machine and responds the result of that command to the client
-	5. Leader tells followers to do the same
-
-
-
-Yifan's:
-Log Replication:
-	1.  Leader receives client command
-	2.  Leader applies the command to its log as a new entry
-	2.1 issues AppendEntries RPCs in parallel to each of the other servers
-
-    3.  Replicas send back acks for RPC
-    4.  if Leader receives N/2+1, update Leader last_commited_idx (commited)
-    4.1 send results back to the client
-    5.  send commit RPC requests to the replicas
-
-	3. When the entry has been safely replicated (process described below), the leader will apply the entry to its state machine and return the result to the client
-	4. If followers crash or packets are lost, the leader retries AppendEntires RPCs indefinitely until all followers eventually store all log entries
-
-
-
-To bring a follower’s log into consistency with its own,
-the leader must find the latest log entry where the two
-logs agree, delete any entries in the follower’s log after
-that point, and send the follower all of the leader’s entries
-after that point.
-
- All of these actions happen in response
-to the consistency check performed by AppendEntries
-RPCs.
-
-The leader maintains a nextIndex for each follower,
-which is the index of the next log entry the leader will
-send to that follower
-
-Log Organization:
-	1. Each log entry stores a state machine command along with the term number when the entry was received by the leader
-	2. The term numbers in log entries are used to detect inconsistencies between logs
-	3. A log entry is committed once the leader that created the entry has has replicated it on a majority of servers
-	4. This also commits all preceding entries in the leader's log, including entries created by preceding leaders
-	5. Leader keeps track of the highest index it knows to be committed, and *includes that index in future AppendEntries RPCs (including heartbeats)* so that other servers eventually find out
-	6. Once a follower learns that a log entry is committed, it applies the entry to its local state machine (in log order)
-		-Consistency check: When sending an AppendEntries RPC, the leader includes the index and term of the entry in its log that immediately precedes the new entries. If the follower does not find an entry in its log with the same index and term, it refuses the new entries
-	7. To bring a follower's log into consistency with its own:
-		-The leader must find the latest log entry where the two logs agree
-		-Delete any entries in the follower's log after that point
-		-Send the follower all of the leader's entries after that point
-		-The leader maintains a nextIndex for each follower, which is the index of the next log entry the header will send to that follower. When a leader first comes to power, it initializes all the nextIndex values to the index just after the last one in its log
-		-If a follower's log is inconsistent with the leader's the AppendEntries  consistency check will fail and the leader will decrement nextIndex and retry. Eventually nextIndex will reach a point where the leader and follower logs match
-	8. The RequestVote RPC includes information about the candidate's log, and the voter denies its vote if its own log is more up-to-date than that of the candidate
-
-
------Up to 5.6--------
-
-
-
-------------------------Roles: Election/Regular----------------------
 Leader:
 	Can receive:
 		1. Client requests
@@ -137,52 +28,88 @@ Follower:
 		4. AppendLog RPCs
 	Can send:
 		1. Response to RequestVote
-		2. ACKs
-
-------------------------IMPORTANT NOTES--------------------------------
-1. Possible edge case for indexing by 0/1 and the first commit
 
 
+We also splitted the project into different phases.
+Phase 0. Implemented leader election, made sure it works before moving on to implementing
+the next part
+Phase 1. Implemented log replication
+Phase 2. Improve performance by reducing number of messages sent between servers
+Phase 3. Deal with partition
+
+Beginning:
+	1. Everything is a follower. Nobody will receive heartbeats
+	2. If a follower receives no communication during its election timeout, it starts an election
+
+Election:
+	1. To begin an election, a timed out follower:
+		-Increments its current term
+		-Becomes a candidate
+		-Votes for itself
+		-Sends RequestVote RPCs
+	2. A candidate continues in the election until:
+		a. It wins the election
+			-Candidate received votes from the majority of servers
+			-It becomes leader and sends heartbeats to all of the other servers to establish
+			its authority and prevent new elections
+		b. Another server establishes itself as leader
+			-Candidate receives heartbeat from claimed leader
+			-If the claimed leader's term is at least as large as the current term, the leader
+			is accepted as legitimate
+			-If the claimed leader's term is smaller, it rejects the RPC and continues in
+			candidate state
+		c. A period of time goes by with no winner
+			-Each candidate times out and starts a new election by incrementing its term
+			-Without randomized timeouts, split votes can remain indefinitely
+
+Log Replication:
+	1. Leader receives client command
+	2. Leader appends the command to its log as a new entry and then issues AppendEntries
+	    RPCs in parallel to each of the other servers
+	3. When the entry has been safely replicated (process described below), the leader will
+	    apply the entry to its state machine and return the result to the client
+	4. If followers crash or packets are lost, the leader retries AppendEntires RPCs
+	    indefinitely until all followers eventually store all log entries
+
+Log Organization:
+	1. Each log entry stores a state machine command along with the term number when the entry was received by the leader
+	2. The term numbers in log entries are used to detect inconsistencies between logs
+	3. A log entry is committed once the leader that created the entry has has replicated it on a majority of servers
+	4. This also commits all preceding entries in the leader's log, including entries created by preceding leaders
+	5. Leader keeps track of the highest index it knows to be committed, and *includes
+	    that index in future AppendEntries RPCs (including heartbeats)* so that other servers eventually find out
+	6. Once a follower learns that a log entry is committed, it applies the entry to its local state machine (in log order)
+		-Consistency check: When sending an AppendEntries RPC,
+		    the leader includes the index and term of the entry in its log
+		    that immediately precedes the new entries. If the follower does not find
+		    an entry in its log with the same index and term, it refuses the new entries
+	7. To bring a follower's log into consistency with its own:
+		-The leader must find the latest log entry where the two logs agree
+		-Delete any entries in the follower's log after that point
+		-Send the follower all of the leader's entries after that point
+		-The leader maintains a nextIndex for each follower, which is the index of the
+		    next log entry the header will send to that follower. When a leader first comes
+		    to power, it initializes all the nextIndex values to the index just after the last one in its log
+		-If a follower's log is inconsistent with the leader's the AppendEntries
+		    consistency check will fail and the leader will decrement nextIndex and retry.
+		    Eventually nextIndex will reach a point where the leader and follower logs match
+	8. The RequestVote RPC includes information about the candidate's log,
+	    and the voter denies its vote if its own log is more up-to-date than that of the candidate
+
+******Challenges faced******:
+One of the challenges we faced is to clearly indentify errors in the code.
+Debugging distributed systems is hard. When there are several machines, it is extremely difficult to identify
+why a test failed, and in what scenario it failed, and how to recreate the situation, and how to modify the code such
+that it works properly.
+We followed closely to the Raft paper and implemented everything in the paper.
 
 
+******An overview of how we tested our code******:
+Isolated code into different part. Created an isolated environment, which we could
+understand. Tested code chunks in each individual environment and used print 
+statements to make sure that the produced result is what we expected.
+Wrote smaller programs that simulates the code, and tested the simulated program
+carefully.
 
-#STATE:
-#last term server has seen
-#current_term = 0
-#candidate_id that received vote in current term
-#voted_for = None
-#log entries; each entry contains command for state machine,
-#and term when entry was received by leader
-#log[] = list()
-#index of highest log entry known to be committed
-#commit_index = 0
-#index of highest log entry applied to state machine
-#last_applied = 0
-#index of the next log entry to send to that server
-#nextIndex[] = leader of last log index + 1
-#index of highest log entry known to be replicated
-#matchIndex[]
-
-#AppendEntries RPC
-#term = leader's term
-#so follower can redirect clients
-#leaderId =
-#index of log entry immediately preceding new ones
-#prevLogIndex =
-#term of prevLogIndex entry
-#prevLogTerm =
-#log entries to store
-#(empty for heartbeat; may send more than one for efficiency)
-#entries[]
-#leader's commitIndex
-#leaderCommit
-
-#RequestVote RPC
-#candidate's term
-#term
-#candidate's requesting vote
-#candidateId
-#index of candidate's last long entry
-#lastLogIndex
-#term of candidate's last log entry
-#lastLogTerm
+In addition, we used extremely effective print statements to print the state of the machines,
+to make sure that the machines are behaving exactly the way we want.
